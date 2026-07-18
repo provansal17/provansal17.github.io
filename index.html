@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Parkour Generator</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #87CEEB;
+        }
+
+        #ui-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 10;
+            max-width: 300px;
+        }
+
+        h1 {
+            font-size: 20px;
+            margin-top: 0;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 2px solid #5c8e32;
+            padding-bottom: 5px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #ccc;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            background: #555;
+            accent-color: #5c8e32;
+        }
+
+        button {
+            width: 100%;
+            background-color: #5c8e32;
+            color: white;
+            border: none;
+            padding: 10px;
+            font-weight: bold;
+            font-size: 14px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #4a7426;
+        }
+
+        #stats {
+            font-size: 11px;
+            color: #aaa;
+            margin-top: 10px;
+        }
+
+        /* Прицел по центру экрана для реалистичности */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 5;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.8);
+        }
+        #crosshair::before { top: 4px; left: 0; width: 10px; height: 2px; }
+        #crosshair::after { top: 0; left: 4px; width: 2px; height: 10px; }
+    </style>
+    <!-- Подключаем Three.js через CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="crosshair"></div>
+
+    <div id="ui-container">
+        <h1>Паркур Генератор</h1>
+        
+        <div class="control-group">
+            <button id="btn-generate">Сгенерировать новый</button>
+        </div>
+
+        <div class="control-group">
+            <label for="slider-speed">Скорость прыжков</label>
+            <input type="range" id="slider-speed" min="1" max="5" step="0.1" value="2.5">
+        </div>
+
+        <div class="control-group">
+            <label for="slider-height">Высота прыжка</label>
+            <input type="range" id="slider-height" min="0.5" max="2" step="0.1" value="1.2">
+        </div>
+
+        <div id="stats">
+            Блоков сгенерировано: <span id="block-count">0</span>
+        </div>
+    </div>
+
+    <script>
+        // --- Настройка сцены Three.js ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Голубое небо
+        scene.fog = new THREE.FogExp2(0x87CEEB, 0.03); // Туман для имитации дальности прорисовки
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // --- Освещение ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(20, 40, 20);
+        scene.add(dirLight);
+
+        // --- Переменные паркура ---
+        const parkourGroup = new THREE.Group();
+        scene.add(parkourGroup);
+
+        let blocksData = []; // Координаты центров блоков
+        const totalBlocks = 100; // Количество генерируемых блоков
+
+        // Настройки движения
+        let currentBlockIndex = 0;
+        let jumpProgress = 0; // от 0 до 1 между блоками
+        let speedMultiplier = 2.5;
+        let maxJumpHeight = 1.2;
+
+        // --- Текстурирование блоков силами Three.js (без внешних картинок) ---
+        // Создаем материалы для блока травы (бока коричневые, верх зеленый)
+        const materials = [
+            new THREE.MeshLambertMaterial({color: 0x866043}), // вправо (земля)
+            new THREE.MeshLambertMaterial({color: 0x866043}), // влево
+            new THREE.MeshLambertMaterial({color: 0x5c8e32}), // верх (трава)
+            new THREE.MeshLambertMaterial({color: 0x5c8e32}), // низ
+            new THREE.MeshLambertMaterial({color: 0x866043}), // перед
+            new THREE.MeshLambertMaterial({color: 0x866043})  // зад
+        ];
+        const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+        // --- Генератор трассы ---
+        function generateParkour() {
+            // Очищаем старые блоки
+            while(parkourGroup.children.length > 0){
+                parkourGroup.remove(parkourGroup.children[0]);
+            }
+            blocksData = [];
+
+            let currentPos = new THREE.Vector3(0, 0, 0);
+            blocksData.push(currentPos.clone());
+            createBlockMesh(currentPos);
+
+            for (let i = 1; i < totalBlocks; i++) {
+                // Вычисляем случайное смещение для следующего прыжка в стиле Minecraft
+                const dx = 2.0 + Math.random() * 1.8; // Расстояние вперед (2 - 3.8 блоков)
+                const dy = (Math.random() - 0.3) * 1.0; // Смещение по высоте (-0.3 до +0.7)
+                const dz = (Math.random() - 0.5) * 1.8; // Смещение влево/вправо (-0.9 до +0.9)
+
+                currentPos.x += dx;
+                currentPos.y += dy;
+                currentPos.z += dz;
+
+                blocksData.push(currentPos.clone());
+                createBlockMesh(currentPos);
+            }
+
+            document.getElementById('block-count').innerText = totalBlocks;
+            
+            // Сброс камеры на старт
+            currentBlockIndex = 0;
+            jumpProgress = 0;
+            updateCameraPosition(0);
+        }
+
+        function createBlockMesh(pos) {
+            const mesh = new THREE.Mesh(blockGeometry, materials);
+            mesh.position.copy(pos);
+            parkourGroup.add(mesh);
+        }
+
+        // --- Логика прыжка (физика камеры) ---
+        function updateCameraPosition(deltaTime) {
+            if (blocksData.length === 0) return;
+
+            // Если дошли до конца трассы, возвращаемся в начало
+            if (currentBlockIndex >= blocksData.length - 1) {
+                currentBlockIndex = 0;
+                jumpProgress = 0;
+            }
+
+            const startBlock = blocksData[currentBlockIndex];
+            const endBlock = blocksData[currentBlockIndex + 1];
+
+            // Наращиваем прогресс прыжка с учетом скорости
+            jumpProgress += deltaTime * speedMultiplier;
+
+            if (jumpProgress >= 1) {
+                jumpProgress = 0;
+                currentBlockIndex++;
+                return;
+            }
+
+            // Рост уровня глаз над блоком (в Майнкрафте рост игрока ~1.6 - 1.8 блока)
+            const eyeHeight = 1.4;
+
+            // Интерполяция X и Z координат движения
+            const currentX = THREE.MathUtils.lerp(startBlock.x, endBlock.x, jumpProgress);
+            const currentZ = THREE.MathUtils.lerp(startBlock.z, endBlock.z, jumpProgress);
+
+            // Парабола для имитации высоты прыжка (ось Y)
+            const startY = startBlock.y + eyeHeight;
+            const endY = endBlock.y + eyeHeight;
+            const linearY = THREE.MathUtils.lerp(startY, endY, jumpProgress);
+            
+            // Формула параболы: h = 4 * H * t * (1 - t)
+            const jumpArc = 4 * maxJumpHeight * jumpProgress * (1 - jumpProgress);
+            const currentY = linearY + jumpArc;
+
+            camera.position.set(currentX, currentY, currentZ);
+
+            // Куда смотрит камера (направление взгляда вперед на следующий блок)
+            const lookTargetIndex = Math.min(currentBlockIndex + 1, blocksData.length - 1);
+            const lookTarget = blocksData[lookTargetIndex].clone();
+            // Направляем взгляд чуть выше блока
+            lookTarget.y += eyeHeight * 0.8; 
+
+            // Сглаживание направления взгляда (интерполяция)
+            const targetCamLook = new THREE.Vector3().lerpVectors(camera.position, lookTarget, 0.1);
+            camera.lookAt(lookTarget);
+        }
+
+        // --- Главный цикл анимации (Render Loop) ---
+        let lastTime = performance.now();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastTime) / 1000; // перевод в секунды
+            lastTime = currentTime;
+
+            // Ограничиваем шаг времени, чтобы избежать рывков при сворачивании вкладки
+            const limitedDelta = Math.min(deltaTime, 0.1);
+
+            updateCameraPosition(limitedDelta);
+            renderer.render(scene, camera);
+        }
+
+        // --- Обработчики событий интерфейса ---
+        document.getElementById('btn-generate').addEventListener('click', generateParkour);
+        
+        const speedSlider = document.getElementById('slider-speed');
+        speedSlider.addEventListener('input', (e) => {
+            speedMultiplier = parseFloat(e.target.value);
+        });
+
+        const heightSlider = document.getElementById('slider-height');
+        heightSlider.addEventListener('input', (e) => {
+            maxJumpHeight = parseFloat(e.target.value);
+        });
+
+        // Адаптивность под размеры экрана
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- Старт ---
+        generateParkour();
+        animate();
+    </script>
+</body>
+</html>
