@@ -10,6 +10,7 @@
             overflow: hidden;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #000;
+            --theme: day; /* Значение по умолчанию (день) */
         }
         canvas {
             display: block;
@@ -48,9 +49,16 @@
         const canyonTempMatrix = new THREE.Matrix4();
         const canyonTempPosition = new THREE.Vector3();
 
-        // Проверяем хэш в URL при загрузке страницы (для ОБС или повторного открытия)
+        // --- Определение темы при инициализации ---
+        // 1. Считываем параметры из URL (?mode=night)
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlMode = urlParams.get('mode');
+
+        // 2. Считываем параметры из Пользовательского CSS ОБС (--theme: night)
+        const cssTheme = getComputedStyle(document.body).getPropertyValue('--theme').trim();
+
         let isNight = false;
-        if (window.location.hash === '#night') {
+        if (cssTheme === 'night' || urlMode === 'night' || window.location.hash === '#night') {
             isNight = true;
         }
 
