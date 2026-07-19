@@ -12,6 +12,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #000;
             --theme: day; /* Значение по умолчанию (день) */
+            touch-action: none;
         }
         canvas {
             display: block;
@@ -1463,17 +1464,19 @@
 
         // --- Слушатель двойного тапа для телефонов ---
         let lastTap = 0;
-        window.addEventListener('touchend', (event) => {
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTap;
-            
-            // Если интервал между тапами меньше 300мс и больше 0
-            if (tapLength < 300 && tapLength > 0) {
-                toggleNightMode();
-                event.preventDefault(); // Предотвращаем зум браузера
-            }
-            lastTap = currentTime;
-        }, { passive: false });
+document.addEventListener('touchstart', (event) => {
+    // Игнорируем касания несколькими пальцами одновременно (мультитач)
+    if (event.touches.length > 1) return;
+
+    const currentTime = new Date().getTime();
+    const tapLength = currentTime - lastTap;
+    
+    if (tapLength < 300 && tapLength > 0) {
+        toggleNightMode();
+        event.preventDefault(); // Предотвращает зум страницы браузером
+    }
+    lastTap = currentTime;
+}, { passive: false });
 
         // --- Главный цикл анимации ---
         let lastTime = performance.now();
@@ -1498,7 +1501,9 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
-
+        document.addEventListener('dblclick', () => {
+    toggleNightMode();
+});
         // Запуск
         generateParkour();
         animate();
