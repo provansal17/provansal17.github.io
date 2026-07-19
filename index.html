@@ -3,45 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minecraft Parkour Generator</title>
+    <title>Minecraft Infinite Parkour - Shader Edition</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #87CEEB;
+            background-color: #000;
         }
 
         #ui-container {
             position: absolute;
             top: 20px;
             left: 20px;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0, 0, 0, 0.8);
             padding: 20px;
             border-radius: 10px;
             color: white;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
             z-index: 10;
             max-width: 300px;
+            backdrop-filter: blur(5px);
+            max-height: 90vh;
+            overflow-y: auto;
         }
 
         h1 {
             font-size: 20px;
             margin-top: 0;
-            margin-bottom: 15px;
+            margin-bottom: 5px;
             text-transform: uppercase;
             letter-spacing: 1px;
-            border-bottom: 2px solid #5c8e32;
-            padding-bottom: 5px;
+            color: #fff;
+        }
+        
+        .subtitle {
+            font-size: 11px;
+            color: #85c255;
+            margin-bottom: 15px;
+            text-transform: uppercase;
         }
 
         .control-group {
-            margin-bottom: 15px;
+            margin-bottom: 12px;
+        }
+
+        .texture-upload-group {
+            border-top: 1px solid #444;
+            margin-top: 15px;
+            padding-top: 15px;
+        }
+
+        .texture-title {
+            color: #85c255;
+            font-weight: bold;
+            font-size: 12px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
         }
 
         label {
             display: block;
-            font-size: 12px;
+            font-size: 11px;
             margin-bottom: 5px;
             color: #ccc;
         }
@@ -50,6 +73,13 @@
             width: 100%;
             background: #555;
             accent-color: #5c8e32;
+        }
+
+        input[type="file"] {
+            font-size: 11px;
+            color: #aaa;
+            margin-bottom: 10px;
+            width: 100%;
         }
 
         button {
@@ -70,12 +100,17 @@
         }
 
         #stats {
-            font-size: 11px;
-            color: #aaa;
+            font-size: 13px;
+            color: #fff;
             margin-top: 10px;
+            line-height: 1.6;
+        }
+        .highlight {
+            color: #a6e22e;
+            font-weight: bold;
         }
 
-        /* Прицел по центру экрана для реалистичности */
+        /* Прицел по центру экрана */
         #crosshair {
             position: absolute;
             top: 50%;
@@ -102,180 +137,610 @@
     <div id="crosshair"></div>
 
     <div id="ui-container">
-        <h1>Паркур Генератор</h1>
+        <h1>Паркур Шейдеры</h1>
+        <div class="subtitle">Свет, тени и цикл суток</div>
         
         <div class="control-group">
-            <button id="btn-generate">Сгенерировать новый</button>
+            <button id="btn-generate">Перегенерировать</button>
+        </div>
+
+        <div class="control-group">
+            <label for="slider-time-speed">Скорость времени (1.0 = как в Minecraft, 20 мин)</label>
+            <input type="range" id="slider-time-speed" min="0" max="25" step="0.5" value="1.0">
         </div>
 
         <div class="control-group">
             <label for="slider-speed">Скорость прыжков</label>
-            <input type="range" id="slider-speed" min="1" max="5" step="0.1" value="2.5">
-        </div>
-
-        <div class="control-group">
-            <label for="slider-height">Высота прыжка</label>
-            <input type="range" id="slider-height" min="0.5" max="2" step="0.1" value="1.2">
+            <input type="range" id="slider-speed" min="1" max="5" step="0.1" value="1.67">
         </div>
 
         <div id="stats">
-            Блоков сгенерировано: <span id="block-count">0</span>
+            Пройдено блоков: <span id="block-count" class="highlight">0</span><br>
+            Время суток: <span id="time-display" class="highlight">12:00</span>
+        </div>
+
+        <!-- Раздел загрузки своих текстур -->
+        <div class="texture-upload-group">
+            <div class="texture-title">Свои текстуры (PNG/JPG)</div>
+            <div style="font-size: 10px; color: #aaa; margin-bottom: 10px; line-height: 1.3;">
+                По умолчанию сайт пытается загрузить файлы <b style="color:#fff">top.png</b>, <b style="color:#fff">side.png</b> и <b style="color:#fff">bottom.png</b> из папки <b style="color:#fff">textures/</b> рядом с сайтом (требуется запуск через локальный сервер).
+            </div>
+            
+            <label for="upload-top">Загрузить верх вручную:</label>
+            <input type="file" id="upload-top" accept="image/*">
+
+            <label for="upload-side">Загрузить бок вручную:</label>
+            <input type="file" id="upload-side" accept="image/*">
+
+            <label for="upload-bottom">Загрузить низ вручную:</label>
+            <input type="file" id="upload-bottom" accept="image/*">
         </div>
     </div>
 
     <script>
-        // --- Настройка сцены Three.js ---
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB); // Голубое небо
-        scene.fog = new THREE.FogExp2(0x87CEEB, 0.03); // Туман для имитации дальности прорисовки
+        // --- Генерация пиксельных текстур по умолчанию (HTML5 Canvas) ---
+        function createPixelTexture(type) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16;
+            canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            
+            for(let y = 0; y < 16; y++) {
+                for(let x = 0; x < 16; x++) {
+                    let r, g, b;
+                    if (type === 'top') {
+                        const noise = Math.random() * 30 - 15;
+                        r = 92 + noise; g = 142 + noise; b = 50 + noise;
+                    } else if (type === 'bottom') {
+                        const noise = Math.random() * 20 - 10;
+                        r = 134 + noise; g = 96 + noise; b = 67 + noise;
+                    } else {
+                        const isGrass = y < 4 || (y === 4 && Math.random() > 0.4) || (y === 5 && Math.random() > 0.8);
+                        if (isGrass) {
+                            const noise = Math.random() * 30 - 15;
+                            r = 92 + noise; g = 142 + noise; b = 50 + noise;
+                        } else {
+                            const noise = Math.random() * 20 - 10;
+                            r = 134 + noise; g = 96 + noise; b = 67 + noise;
+                        }
+                    }
+                    ctx.fillStyle = `rgb(${Math.floor(r)},${Math.floor(g)},${Math.floor(b)})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            return texture;
+        }
 
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        // --- Текстуры для плоских Солнца и Луны ---
+        function createSunTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            for(let y = 0; y < 16; y++) {
+                for(let x = 0; x < 16; x++) {
+                    let r = 255, g = 190, b = 60; // Оранжевая кайма
+                    if (x >= 2 && x <= 13 && y >= 2 && y <= 13) {
+                        r = 255; g = 245; b = 195; // Яркое желтое ядро
+                    }
+                    ctx.fillStyle = `rgb(${r},${g},${b})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            return texture;
+        }
+
+        function createMoonTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            for(let y = 0; y < 16; y++) {
+                for(let x = 0; x < 16; x++) {
+                    let r = 220, g = 220, b = 220; // Светло-серый
+                    if ((x+y)%5 === 0 || (x*y)%7 === 0) {
+                        r = 170; g = 170; b = 170; // Серые кратеры
+                    }
+                    ctx.fillStyle = `rgb(${r},${g},${b})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            return texture;
+        }
+
+        // --- Настройка сцены и рендерера ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x6ca1ff); 
+        scene.fog = new THREE.Fog(0x6ca1ff, 200, 400); 
+
+        const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        // Включение поддержки теней высокой четкости
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
+        const dummy = new THREE.Object3D();
+
         // --- Освещение ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.1); 
         scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(20, 40, 20);
-        scene.add(dirLight);
+        // Солнце
+        const sunLight = new THREE.DirectionalLight(0xfffdf2, 1.4);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.left = -40;
+        sunLight.shadow.camera.right = 40;
+        sunLight.shadow.camera.top = 40;
+        sunLight.shadow.camera.bottom = -40;
+        sunLight.shadow.camera.near = 10;
+        sunLight.shadow.camera.far = 250;
+        sunLight.shadow.bias = -0.0003; 
+        scene.add(sunLight);
+        scene.add(sunLight.target); 
+
+        // Луна
+        const moonLight = new THREE.DirectionalLight(0xaaccff, 0.35);
+        moonLight.castShadow = true;
+        moonLight.shadow.mapSize.width = 1024;
+        moonLight.shadow.mapSize.height = 1024;
+        moonLight.shadow.camera.left = -40;
+        moonLight.shadow.camera.right = 40;
+        moonLight.shadow.camera.top = 40;
+        moonLight.shadow.camera.bottom = -40;
+        moonLight.shadow.camera.near = 10;
+        moonLight.shadow.camera.far = 250;
+        scene.add(moonLight);
+        scene.add(moonLight.target);
+
+        // --- Создание ПЛОСКИХ небесных тел (PlaneGeometry) ---
+        // Солнце
+        const sunGeo = new THREE.PlaneGeometry(16, 16);
+        const sunMat = new THREE.MeshBasicMaterial({map: createSunTexture(), transparent: true, fog: false, side: THREE.DoubleSide});
+        const sunMesh = new THREE.Mesh(sunGeo, sunMat);
+        scene.add(sunMesh);
+
+        // Луна
+        const moonGeo = new THREE.PlaneGeometry(12, 12);
+        const moonMat = new THREE.MeshBasicMaterial({map: createMoonTexture(), transparent: true, fog: false, side: THREE.DoubleSide});
+        const moonMesh = new THREE.Mesh(moonGeo, moonMat);
+        scene.add(moonMesh);
+
+        // --- Ночные звезды ---
+        const starGeo = new THREE.BufferGeometry();
+        const starCount = 600;
+        const starPositions = new Float32Array(starCount * 3);
+        for(let i=0; i<starCount*3; i+=3) {
+            const u = Math.random();
+            const v = Math.random();
+            const theta = u * 2.0 * Math.PI;
+            const phi = Math.acos(2.0 * v - 1.0);
+            const r = 200;
+            starPositions[i] = r * Math.sin(phi) * Math.cos(theta);
+            starPositions[i+1] = Math.abs(r * Math.sin(phi) * Math.sin(theta)); 
+            starPositions[i+2] = r * Math.cos(phi);
+        }
+        starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const starMat = new THREE.PointsMaterial({color: 0xffffff, size: 1.2, transparent: true, opacity: 0});
+        const starField = new THREE.Points(starGeo, starMat);
+        scene.add(starField);
+
+        // --- Облака по оригинальной сетке Minecraft ---
+        const cloudPattern = [
+            [0,0,1,1,1,0,0,0,0,1,1,1,1,0,0,0],
+            [0,1,1,1,1,1,0,0,1,1,1,1,1,1,0,0],
+            [1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,0,0,1,1,1,1,1,0,0],
+            [0,1,1,1,1,1,0,0,0,0,1,1,1,0,0,0],
+            [0,0,1,1,1,0,0,0,1,1,0,0,0,0,1,1],
+            [0,0,0,0,0,0,1,1,1,1,1,0,0,1,1,1],
+            [1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1],
+            [0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+            [0,0,1,1,1,1,1,0,0,1,1,1,1,0,0,0],
+            [0,0,0,1,1,1,0,0,0,0,1,1,0,0,0,0],
+            [0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0],
+            [0,1,1,1,0,0,0,1,1,1,1,1,1,1,0,0],
+            [1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0]
+        ];
+
+        const cloudScale = 8; 
+        const maxCloudInstances = 6000; 
+        
+        const cloudGeometry = new THREE.BoxGeometry(cloudScale, 1.5, cloudScale);
+        const cloudMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: false, 
+            fog: true,          
+            depthWrite: true
+        });
+
+        const cloudMesh = new THREE.InstancedMesh(cloudGeometry, cloudMaterial, maxCloudInstances);
+        scene.add(cloudMesh);
+
+        let cloudOffsetX = 0;
+        let cloudOffsetZ = 0;
 
         // --- Переменные паркура ---
         const parkourGroup = new THREE.Group();
         scene.add(parkourGroup);
 
-        let blocksData = []; // Координаты центров блоков
-        const totalBlocks = 100; // Количество генерируемых блоков
+        let blocksData = [];  
+        let blockMeshes = [];  
+        const maxActiveBlocks = 35; 
+        let blocksPassed = 0;       
 
-        // Настройки движения
-        let currentBlockIndex = 0;
-        let jumpProgress = 0; // от 0 до 1 между блоками
-        let speedMultiplier = 2.5;
-        let maxJumpHeight = 1.2;
+        let dayTime = 600; 
+        let timeSpeedScale = 1.0; 
 
-        // --- Текстурирование блоков силами Three.js (без внешних картинок) ---
-        // Создаем материалы для блока травы (бока коричневые, верх зеленый)
+        // Физика прыжка
+        let jumpProgress = 0; 
+        let speedMultiplier = 1.67; 
+        let maxJumpHeight = 1.25;   
+        const rotationSmoothSpeed = 7.0; 
+
+        // Инициализируем материалы (по умолчанию процедурные текстуры)
         const materials = [
-            new THREE.MeshLambertMaterial({color: 0x866043}), // вправо (земля)
-            new THREE.MeshLambertMaterial({color: 0x866043}), // влево
-            new THREE.MeshLambertMaterial({color: 0x5c8e32}), // верх (трава)
-            new THREE.MeshLambertMaterial({color: 0x5c8e32}), // низ
-            new THREE.MeshLambertMaterial({color: 0x866043}), // перед
-            new THREE.MeshLambertMaterial({color: 0x866043})  // зад
+            new THREE.MeshStandardMaterial({map: createPixelTexture('side'), roughness: 0.9, metalness: 0.0}), 
+            new THREE.MeshStandardMaterial({map: createPixelTexture('side'), roughness: 0.9, metalness: 0.0}), 
+            new THREE.MeshStandardMaterial({map: createPixelTexture('top'), roughness: 0.95, metalness: 0.0}), 
+            new THREE.MeshStandardMaterial({map: createPixelTexture('bottom'), roughness: 0.9, metalness: 0.0}), 
+            new THREE.MeshStandardMaterial({map: createPixelTexture('side'), roughness: 0.9, metalness: 0.0}), 
+            new THREE.MeshStandardMaterial({map: createPixelTexture('side'), roughness: 0.9, metalness: 0.0})  
         ];
         const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
 
-        // --- Генератор трассы ---
+        // --- Автоматическая загрузка локальных текстур из папки textures/ ---
+        const textureLoader = new THREE.TextureLoader();
+
+        function loadLocalTexture(path, materialType) {
+            textureLoader.load(
+                path,
+                (texture) => {
+                    texture.magFilter = THREE.NearestFilter;
+                    texture.minFilter = THREE.NearestFilter;
+
+                    if (materialType === 'side') {
+                        materials[0].map = texture; 
+                        materials[1].map = texture; 
+                        materials[4].map = texture; 
+                        materials[5].map = texture; 
+                        
+                        materials[0].color.setHex(0xffffff);
+                        materials[1].color.setHex(0xffffff);
+                        materials[4].color.setHex(0xffffff);
+                        materials[5].color.setHex(0xffffff);
+                    } else if (materialType === 'top') {
+                        materials[2].map = texture; 
+                        materials[2].color.setHex(0xffffff);
+                    } else if (materialType === 'bottom') {
+                        materials[3].map = texture; 
+                        materials[3].color.setHex(0xffffff);
+                    }
+                    materials.forEach(m => m.needsUpdate = true);
+                    console.log(`Текстура успешно загружена: ${path}`);
+                },
+                undefined,
+                (err) => {
+                    console.warn(`Не удалось загрузить ${path}. Используется встроенная текстура.`);
+                }
+            );
+        }
+
+        // Запуск автозагрузки
+        loadLocalTexture('textures/top.png', 'top');
+        loadLocalTexture('textures/side.png', 'side');
+        loadLocalTexture('textures/bottom.png', 'bottom');
+
+        function calculateNextPosition(prevPos) {
+            const rand = Math.random();
+            let dy = 0;
+            if (rand < 0.2) dy = -1;
+            else if (rand < 0.4) dy = 1;
+
+            let minD = 3.2; 
+            let maxD = 4.8; 
+
+            if (dy === 1) maxD = 3.8; 
+            else if (dy === -1) maxD = 5.2; 
+
+            const D = minD + Math.random() * (maxD - minD);
+            const angle = (Math.random() - 0.5) * 0.7; 
+
+            const dx = D * Math.cos(angle);
+            const dz = D * Math.sin(angle);
+
+            prevPos.x += dx;
+            prevPos.y += dy; 
+            prevPos.z += dz;
+        }
+
+        function addNewBlock(pos) {
+            const mesh = new THREE.Mesh(blockGeometry, materials);
+            mesh.position.copy(pos);
+            mesh.castShadow = true;     
+            mesh.receiveShadow = true;  
+            parkourGroup.add(mesh);
+            
+            blockMeshes.push(mesh);
+            blocksData.push(pos.clone());
+        }
+
         function generateParkour() {
-            // Очищаем старые блоки
             while(parkourGroup.children.length > 0){
                 parkourGroup.remove(parkourGroup.children[0]);
             }
             blocksData = [];
+            blockMeshes = [];
+            blocksPassed = 0;
+            document.getElementById('block-count').innerText = blocksPassed;
 
             let currentPos = new THREE.Vector3(0, 0, 0);
-            blocksData.push(currentPos.clone());
-            createBlockMesh(currentPos);
-
-            for (let i = 1; i < totalBlocks; i++) {
-                // Вычисляем случайное смещение для следующего прыжка в стиле Minecraft
-                const dx = 2.0 + Math.random() * 1.8; // Расстояние вперед (2 - 3.8 блоков)
-                const dy = (Math.random() - 0.3) * 1.0; // Смещение по высоте (-0.3 до +0.7)
-                const dz = (Math.random() - 0.5) * 1.8; // Смещение влево/вправо (-0.9 до +0.9)
-
-                currentPos.x += dx;
-                currentPos.y += dy;
-                currentPos.z += dz;
-
-                blocksData.push(currentPos.clone());
-                createBlockMesh(currentPos);
+            for (let i = 0; i < maxActiveBlocks; i++) {
+                addNewBlock(currentPos);
+                if (i < maxActiveBlocks - 1) {
+                    calculateNextPosition(currentPos);
+                }
             }
 
-            document.getElementById('block-count').innerText = totalBlocks;
-            
-            // Сброс камеры на старт
-            currentBlockIndex = 0;
             jumpProgress = 0;
             updateCameraPosition(0);
         }
 
-        function createBlockMesh(pos) {
-            const mesh = new THREE.Mesh(blockGeometry, materials);
-            mesh.position.copy(pos);
-            parkourGroup.add(mesh);
-        }
+        // --- Логика времени суток и смены атмосферы ---
+        function updateDayNightCycle(deltaTime) {
+            dayTime += deltaTime * timeSpeedScale;
+            if (dayTime >= 1200) dayTime = 0;
 
-        // --- Логика прыжка (физика камеры) ---
-        function updateCameraPosition(deltaTime) {
-            if (blocksData.length === 0) return;
+            const angle = (dayTime / 1200) * Math.PI * 2 - Math.PI / 2;
+            const sinAngle = Math.sin(angle);
+            const cosAngle = Math.cos(angle);
 
-            // Если дошли до конца трассы, возвращаемся в начало
-            if (currentBlockIndex >= blocksData.length - 1) {
-                currentBlockIndex = 0;
-                jumpProgress = 0;
+            const distance = 160; 
+
+            const sunX = cosAngle * distance;
+            const sunY = sinAngle * distance;
+            const sunZ = 0;
+
+            const moonX = -cosAngle * distance;
+            const moonY = -sinAngle * distance;
+            const moonZ = 0;
+
+            // Солнце
+            sunLight.position.set(camera.position.x + sunX, sunY, camera.position.z + sunZ);
+            sunLight.target.position.set(camera.position.x, camera.position.y - 10, camera.position.z);
+            sunMesh.position.copy(sunLight.position);
+
+            // Луна
+            moonLight.position.set(camera.position.x + moonX, moonY, camera.position.z + moonZ);
+            moonLight.target.position.set(camera.position.x, camera.position.y - 10, camera.position.z);
+            moonMesh.position.copy(moonLight.position);
+
+            // Поворачиваем плоские Солнце и Луну к камере (билбординг)
+            sunMesh.lookAt(camera.position);
+            moonMesh.lookAt(camera.position);
+
+            starField.position.set(camera.position.x, 0, camera.position.z);
+
+            // Движение облаков
+            cloudOffsetX -= 2.0 * deltaTime; 
+            
+            const centerGridX = Math.floor((camera.position.x - cloudOffsetX) / cloudScale);
+            const centerGridZ = Math.floor((camera.position.z - cloudOffsetZ) / cloudScale);
+            
+            let instanceId = 0;
+            const range = 50; 
+            
+            const tempMatrix = new THREE.Matrix4();
+            const tempPosition = new THREE.Vector3();
+            
+            for (let dx = -range; dx <= range; dx++) {
+                for (let dz = -range; dz <= range; dz++) {
+                    const gx = centerGridX + dx;
+                    const gz = centerGridZ + dz;
+                    
+                    const px = ((gx % 16) + 16) % 16;
+                    const pz = ((gz % 16) + 16) % 16;
+                    
+                    if (cloudPattern[pz][px] === 1) {
+                        if (instanceId < maxCloudInstances) {
+                            const x = gx * cloudScale + cloudOffsetX;
+                            const z = gz * cloudScale + cloudOffsetZ;
+                            
+                            tempPosition.set(x, 28, z); 
+                            tempMatrix.makeTranslation(tempPosition.x, tempPosition.y, tempPosition.z);
+                            cloudMesh.setMatrixAt(instanceId, tempMatrix);
+                            instanceId++;
+                        }
+                    }
+                }
+            }
+            cloudMesh.count = instanceId;
+            cloudMesh.instanceMatrix.needsUpdate = true;
+
+            // Атмосфера
+            const skyDay = new THREE.Color(0x6ca1ff);      
+            const skySunset = new THREE.Color(0xde5b21);   
+            const skyNight = new THREE.Color(0x020509);    
+
+            let currentSkyColor = new THREE.Color();
+
+            if (sinAngle >= 0) {
+                currentSkyColor.copy(skySunset).lerp(skyDay, sinAngle);
+                
+                sunLight.intensity = 1.4 * sinAngle;
+                moonLight.intensity = 0;
+                
+                sunLight.color.setHex(0xffffff).lerp(new THREE.Color(0xff7722), 1 - sinAngle);
+                starMat.opacity = 0; 
+                cloudMaterial.color.setHex(0xffffff).lerp(new THREE.Color(0xffcca0), 1 - sinAngle);
+                
+                ambientLight.color.setHex(0xa6c8ff).lerp(new THREE.Color(0xff9944), 1 - sinAngle);
+                ambientLight.intensity = 0.4 * sinAngle + 0.1 * (1 - sinAngle);
+            } else {
+                const nightProgress = -sinAngle; 
+                currentSkyColor.copy(skySunset).lerp(skyNight, nightProgress);
+                
+                sunLight.intensity = 0;
+                moonLight.intensity = 0.35 * nightProgress;
+                moonLight.color.setHex(0xa6c3ff);
+                
+                starMat.opacity = nightProgress;
+                cloudMaterial.color.setHex(0xffffff).lerp(new THREE.Color(0x1a1a33), nightProgress);
+                
+                ambientLight.color.setHex(0x0a0f1d);
+                ambientLight.intensity = 0.05 * nightProgress + 0.1 * (1 - nightProgress);
             }
 
-            const startBlock = blocksData[currentBlockIndex];
-            const endBlock = blocksData[currentBlockIndex + 1];
+            scene.background.copy(currentSkyColor);
+            scene.fog.color.copy(currentSkyColor);
 
-            // Наращиваем прогресс прыжка с учетом скорости
+            const totalMinutes = (dayTime / 1200) * 24 * 60;
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = Math.floor(totalMinutes % 60);
+            
+            let timeString = (hours < 10 ? '0' : '') + hours + ':' + (minutes < 10 ? '0' : '') + minutes;
+            if (hours >= 6 && hours < 8) timeString += " (Рассвет)";
+            else if (hours >= 8 && hours < 17) timeString += " (День)";
+            else if (hours >= 17 && hours < 19) timeString += " (Закат)";
+            else timeString += " (Ночь)";
+
+            document.getElementById('time-display').innerText = timeString;
+        }
+
+        // --- Перемещение камеры ---
+        function updateCameraPosition(deltaTime) {
+            if (blocksData.length < 3) return;
+
+            const startBlock = blocksData[0];
+            const endBlock = blocksData[1];
+
             jumpProgress += deltaTime * speedMultiplier;
 
             if (jumpProgress >= 1) {
+                const oldMesh = blockMeshes.shift();
+                parkourGroup.remove(oldMesh);
+                blocksData.shift();
+
+                const lastPos = blocksData[blocksData.length - 1].clone();
+                calculateNextPosition(lastPos);
+                addNewBlock(lastPos);
+
                 jumpProgress = 0;
-                currentBlockIndex++;
+                blocksPassed++;
+                document.getElementById('block-count').innerText = blocksPassed;
                 return;
             }
 
-            // Рост уровня глаз над блоком (в Майнкрафте рост игрока ~1.6 - 1.8 блока)
-            const eyeHeight = 1.4;
+            const eyeHeight = 1.4; 
 
-            // Интерполяция X и Z координат движения
             const currentX = THREE.MathUtils.lerp(startBlock.x, endBlock.x, jumpProgress);
             const currentZ = THREE.MathUtils.lerp(startBlock.z, endBlock.z, jumpProgress);
 
-            // Парабола для имитации высоты прыжка (ось Y)
             const startY = startBlock.y + eyeHeight;
             const endY = endBlock.y + eyeHeight;
             const linearY = THREE.MathUtils.lerp(startY, endY, jumpProgress);
-            
-            // Формула параболы: h = 4 * H * t * (1 - t)
             const jumpArc = 4 * maxJumpHeight * jumpProgress * (1 - jumpProgress);
             const currentY = linearY + jumpArc;
 
             camera.position.set(currentX, currentY, currentZ);
 
-            // Куда смотрит камера (направление взгляда вперед на следующий блок)
-            const lookTargetIndex = Math.min(currentBlockIndex + 1, blocksData.length - 1);
-            const lookTarget = blocksData[lookTargetIndex].clone();
-            // Направляем взгляд чуть выше блока
-            lookTarget.y += eyeHeight * 0.8; 
+            // Направление взгляда по направлению прыжка
+            const currentDir = new THREE.Vector3().subVectors(endBlock, startBlock);
+            currentDir.y = 0; 
+            currentDir.normalize();
 
-            // Сглаживание направления взгляда (интерполяция)
-            const targetCamLook = new THREE.Vector3().lerpVectors(camera.position, lookTarget, 0.1);
-            camera.lookAt(lookTarget);
+            const nextBlock = blocksData[1];
+            const farBlock = blocksData[2];
+            const nextDir = new THREE.Vector3().subVectors(farBlock, nextBlock);
+            nextDir.y = 0;
+            nextDir.normalize();
+
+            const blendedDir = new THREE.Vector3().lerpVectors(currentDir, nextDir, jumpProgress);
+            blendedDir.normalize();
+
+            const lookTarget = camera.position.clone().add(blendedDir);
+
+            dummy.position.copy(camera.position);
+            dummy.lookAt(lookTarget);
+            dummy.rotateY(Math.PI); 
+
+            if (deltaTime === 0) {
+                camera.quaternion.copy(dummy.quaternion);
+            } else {
+                const slerpFactor = Math.min(rotationSmoothSpeed * deltaTime, 1.0);
+                camera.quaternion.slerp(dummy.quaternion, slerpFactor);
+            }
         }
 
-        // --- Главный цикл анимации (Render Loop) ---
+        // --- Обработчик ручной загрузки текстур ---
+        function handleTextureUpload(event, materialType) {
+            const file = event.target.files[0];
+            if (file) {
+                const url = URL.createObjectURL(file);
+                new THREE.TextureLoader().load(url, (texture) => {
+                    texture.magFilter = THREE.NearestFilter;
+                    texture.minFilter = THREE.NearestFilter;
+
+                    if (materialType === 'side') {
+                        materials[0].map = texture; 
+                        materials[1].map = texture; 
+                        materials[4].map = texture; 
+                        materials[5].map = texture; 
+                        
+                        materials[0].color.setHex(0xffffff);
+                        materials[1].color.setHex(0xffffff);
+                        materials[4].color.setHex(0xffffff);
+                        materials[5].color.setHex(0xffffff);
+                    } else if (materialType === 'top') {
+                        materials[2].map = texture; 
+                        materials[2].color.setHex(0xffffff);
+                    } else if (materialType === 'bottom') {
+                        materials[3].map = texture; 
+                        materials[3].color.setHex(0xffffff);
+                    }
+
+                    materials.forEach(m => m.needsUpdate = true);
+                });
+            }
+        }
+
+        document.getElementById('upload-top').addEventListener('change', (e) => handleTextureUpload(e, 'top'));
+        document.getElementById('upload-side').addEventListener('change', (e) => handleTextureUpload(e, 'side'));
+        document.getElementById('upload-bottom').addEventListener('change', (e) => handleTextureUpload(e, 'bottom'));
+
+        // --- Главный цикл анимации ---
         let lastTime = performance.now();
 
         function animate() {
             requestAnimationFrame(animate);
 
             const currentTime = performance.now();
-            const deltaTime = (currentTime - lastTime) / 1000; // перевод в секунды
+            const deltaTime = (currentTime - lastTime) / 1000;
             lastTime = currentTime;
 
-            // Ограничиваем шаг времени, чтобы избежать рывков при сворачивании вкладки
             const limitedDelta = Math.min(deltaTime, 0.1);
 
+            updateDayNightCycle(limitedDelta);
             updateCameraPosition(limitedDelta);
             renderer.render(scene, camera);
         }
 
-        // --- Обработчики событий интерфейса ---
+        // --- Обработчики событий меню ---
         document.getElementById('btn-generate').addEventListener('click', generateParkour);
         
         const speedSlider = document.getElementById('slider-speed');
@@ -283,19 +748,18 @@
             speedMultiplier = parseFloat(e.target.value);
         });
 
-        const heightSlider = document.getElementById('slider-height');
-        heightSlider.addEventListener('input', (e) => {
-            maxJumpHeight = parseFloat(e.target.value);
+        const timeSpeedSlider = document.getElementById('slider-time-speed');
+        timeSpeedSlider.addEventListener('input', (e) => {
+            timeSpeedScale = parseFloat(e.target.value);
         });
 
-        // Адаптивность под размеры экрана
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // --- Старт ---
+        // Запуск
         generateParkour();
         animate();
     </script>
