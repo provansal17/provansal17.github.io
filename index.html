@@ -1,3 +1,4 @@
+--- START OF FILE index.html ---
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -11,7 +12,13 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #000;
         }
-
+        /* Добавьте это правило, чтобы убрать отступы */
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
     </style>
     
     <!-- Карта импорта модулей для ES Modules -->
@@ -25,10 +32,21 @@
 </head>
 <body>
 
-    
-
     <script type="module">
         import * as THREE from 'three';
+
+        // --- Глобальные переиспользуемые переменные для устранения Garbage Collection ---
+        const tempDir1 = new THREE.Vector3();
+        const tempDir2 = new THREE.Vector3();
+        const tempBlendedDir = new THREE.Vector3();
+        const tempLookTarget = new THREE.Vector3();
+        const skyDayColor = new THREE.Color(0x6ca1ff);
+
+        const cloudTempMatrix = new THREE.Matrix4();
+        const cloudTempPosition = new THREE.Vector3();
+
+        const canyonTempMatrix = new THREE.Matrix4();
+        const canyonTempPosition = new THREE.Vector3();
 
         // --- Генерация пиксельных текстур по умолчанию (HTML5 Canvas) ---
         function createPixelTexture(type) {
@@ -683,6 +701,37 @@
             prevPos.z = Math.round(prevPos.z);
         }
 
+        // Вспомогательные инкрементальные функции для solidBlocks
+        function addCanyonToSolidBlocks(canyon) {
+            for (let j = 0; j < canyon.grass.length; j++) {
+                const p = canyon.grass[j];
+                solidBlocks.add(getCoordKey(p.x, p.y, p.z));
+            }
+            for (let j = 0; j < canyon.dirt.length; j++) {
+                const p = canyon.dirt[j];
+                solidBlocks.add(getCoordKey(p.x, p.y, p.z));
+            }
+            for (let j = 0; j < canyon.stone.length; j++) {
+                const p = canyon.stone[j];
+                solidBlocks.add(getCoordKey(p.x, p.y, p.z));
+            }
+        }
+
+        function removeCanyonFromSolidBlocks(canyon) {
+            for (let j = 0; j < canyon.grass.length; j++) {
+                const p = canyon.grass[j];
+                solidBlocks.delete(getCoordKey(p.x, p.y, p.z));
+            }
+            for (let j = 0; j < canyon.dirt.length; j++) {
+                const p = canyon.dirt[j];
+                solidBlocks.delete(getCoordKey(p.x, p.y, p.z));
+            }
+            for (let j = 0; j < canyon.stone.length; j++) {
+                const p = canyon.stone[j];
+                solidBlocks.delete(getCoordKey(p.x, p.y, p.z));
+            }
+        }
+
         // --- СОЗДАНИЕ 3D-МЕШЕЙ И КАНЬОНА НА ОСНОВЕ ПРЕДВАРИТЕЛЬНОГО ПУТИ ---
         function createCanyonAndMeshesForIndex(index) {
             const gridPos = blocksData[index];
@@ -718,13 +767,17 @@
             const startZ = gridPos.z - radius;
             const endZ = gridPos.z + radius;
 
+            // Локализация поиска: проверяем только близкие блоки трассы вместо всех 80
+            const searchStart = Math.max(0, index - 15);
+            const searchEnd = Math.min(blocksData.length - 1, index + 15);
+
             for (let cx = startX; cx <= endX; cx++) {
                 for (let cz = startZ; cz <= endZ; cz++) {
                     const coordKey = cx + ',' + cz;
                     if (generatedColumns.has(coordKey)) continue;
 
                     let minDistSq = 999999;
-                    for (let i = 0; i < blocksData.length; i++) {
+                    for (let i = searchStart; i <= searchEnd; i++) {
                         const dx = cx - blocksData[i].x;
                         const dz = cz - blocksData[i].z;
                         const dSq = dx * dx + dz * dz;
@@ -769,43 +822,80 @@
             canyonData.push(localCanyon);
         }
 
+        // Функция предварительного расчета Ambient Occlusion для конкретного куска каньона
+        function computeAOForCanyon(data) {
+            if (!data.grassAO) {
+                data.grassAO = [];
+                for (let j = 0; j < data.grass.length; j++) {
+                    const p = data.grass[j];
+                    const aoValues = new Float32Array(24);
+                    for (let k = 0; k < 24; k++) {
+                        aoValues[k] = getAOAtVertex(p.x, p.y, p.z, faceNormals[k], vertexOffsets[k]);
+                    }
+                    data.grassAO.push(aoValues);
+                }
+            }
+            if (!data.dirtAO) {
+                data.dirtAO = [];
+                for (let j = 0; j < data.dirt.length; j++) {
+                    const p = data.dirt[j];
+                    const aoValues = new Float32Array(24);
+                    for (let k = 0; k < 24; k++) {
+                        aoValues[k] = getAOAtVertex(p.x, p.y, p.z, faceNormals[k], vertexOffsets[k]);
+                    }
+                    data.dirtAO.push(aoValues);
+                }
+            }
+            if (!data.stoneAO) {
+                data.stoneAO = [];
+                for (let j = 0; j < data.stone.length; j++) {
+                    const p = data.stone[j];
+                    const aoValues = new Float32Array(24);
+                    for (let k = 0; k < 24; k++) {
+                        aoValues[k] = getAOAtVertex(p.x, p.y, p.z, faceNormals[k], vertexOffsets[k]);
+                    }
+                    data.stoneAO.push(aoValues);
+                }
+            }
+        }
+
         // --- ГЕНЕРАЦИЯ ОДИНОЧНОГО НОВОГО БЛОКА В РЕАЛЬНОМ ВРЕМЕНИ ---
         function addNewBlock(pos) {
-            createCanyonAndMeshesForIndex(blocksBehind + maxActiveBlocks - 1);
+            const newIndex = blocksBehind + maxActiveBlocks - 1;
+            createCanyonAndMeshesForIndex(newIndex);
+
+            // Инкрементально добавляем только новый каньон и блок в solidBlocks
+            const newCanyon = canyonData[canyonData.length - 1];
+            addCanyonToSolidBlocks(newCanyon);
+
+            const newJumpBlock = blocksData[newIndex];
+            solidBlocks.add(getCoordKey(newJumpBlock.x, newJumpBlock.y, newJumpBlock.z));
+            solidBlocks.add(getCoordKey(newJumpBlock.x, newJumpBlock.y - 1, newJumpBlock.z));
+
+            // Сразу рассчитываем AO для нового каньона
+            computeAOForCanyon(newCanyon);
+        }
+
+        // Вспомогательная функция для быстрого копирования кэшированного AO
+        function applyCachedAO(aoValues, ao0, ao1, ao2, ao3, ao4, ao5, instanceId) {
+            const offset = instanceId * 4;
+            for (let i = 0; i < 24; i++) {
+                const aoVal = aoValues[i];
+                if (i < 4) ao0[offset + (i % 4)] = aoVal;
+                else if (i < 8) ao1[offset + (i % 4)] = aoVal;
+                else if (i < 12) ao2[offset + (i % 4)] = aoVal;
+                else if (i < 16) ao3[offset + (i % 4)] = aoVal;
+                else if (i < 20) ao4[offset + (i % 4)] = aoVal;
+                else ao5[offset + (i % 4)] = aoVal;
+            }
         }
 
         // --- Отрисовка скал и реки каньона через InstancedMesh ---
         function updateCanyonMeshes() {
-            // Пересобираем сетку занятых вокселей на CPU
-            solidBlocks.clear();
-            for (let i = 0; i < canyonData.length; i++) {
-                const data = canyonData[i];
-                for (let j = 0; j < data.grass.length; j++) {
-                    const p = data.grass[j];
-                    solidBlocks.add(getCoordKey(p.x, p.y, p.z));
-                }
-                for (let j = 0; j < data.dirt.length; j++) {
-                    const p = data.dirt[j];
-                    solidBlocks.add(getCoordKey(p.x, p.y, p.z));
-                }
-                for (let j = 0; j < data.stone.length; j++) {
-                    const p = data.stone[j];
-                    solidBlocks.add(getCoordKey(p.x, p.y, p.z));
-                }
-            }
-            for (let i = 0; i < blocksData.length; i++) {
-                const p = blocksData[i];
-                solidBlocks.add(getCoordKey(p.x, p.y, p.z));
-                solidBlocks.add(getCoordKey(p.x, p.y - 1, p.z)); // Glowstone под платформой
-            }
-
             let grassId = 0;
             let dirtId = 0;
             let stoneId = 0;
             let waterId = 0;
-
-            const tempMatrix = new THREE.Matrix4();
-            const tempPosition = new THREE.Vector3();
 
             // Извлекаем массивы инстанс-атрибутов AO для модификации
             const grassAO0 = grassGeometry.getAttribute('aAO0').array;
@@ -829,64 +919,15 @@
             const stoneAO4 = stoneGeometry.getAttribute('aAO4').array;
             const stoneAO5 = stoneGeometry.getAttribute('aAO5').array;
 
-            // Вспомогательная функция для быстрого копирования кэшированного AO
-            function applyCachedAO(aoValues, ao0, ao1, ao2, ao3, ao4, ao5, instanceId) {
-                const offset = instanceId * 4;
-                for (let i = 0; i < 24; i++) {
-                    const aoVal = aoValues[i];
-                    if (i < 4) ao0[offset + (i % 4)] = aoVal;
-                    else if (i < 8) ao1[offset + (i % 4)] = aoVal;
-                    else if (i < 12) ao2[offset + (i % 4)] = aoVal;
-                    else if (i < 16) ao3[offset + (i % 4)] = aoVal;
-                    else if (i < 20) ao4[offset + (i % 4)] = aoVal;
-                    else ao5[offset + (i % 4)] = aoVal;
-                }
-            }
-
             for (let i = 0; i < canyonData.length; i++) {
                 const data = canyonData[i];
-                
-                // РАСЧЕТ И КЭШИРОВАНИЕ AO
-                if (!data.grassAO) {
-                    data.grassAO = [];
-                    for (let j = 0; j < data.grass.length; j++) {
-                        const p = data.grass[j];
-                        const aoValues = new Float32Array(24);
-                        for (let k = 0; k < 24; k++) {
-                            aoValues[k] = getAOAtVertex(p.x, p.y, p.z, faceNormals[k], vertexOffsets[k]);
-                        }
-                        data.grassAO.push(aoValues);
-                    }
-                }
-                if (!data.dirtAO) {
-                    data.dirtAO = [];
-                    for (let j = 0; j < data.dirt.length; j++) {
-                        const p = data.dirt[j];
-                        const aoValues = new Float32Array(24);
-                        for (let k = 0; k < 24; k++) {
-                            aoValues[k] = getAOAtVertex(p.x, p.y, p.z, faceNormals[k], vertexOffsets[k]);
-                        }
-                        data.dirtAO.push(aoValues);
-                    }
-                }
-                if (!data.stoneAO) {
-                    data.stoneAO = [];
-                    for (let j = 0; j < data.stone.length; j++) {
-                        const p = data.stone[j];
-                        const aoValues = new Float32Array(24);
-                        for (let k = 0; k < 24; k++) {
-                            aoValues[k] = getAOAtVertex(p.x, p.y, p.z, faceNormals[k], vertexOffsets[k]);
-                        }
-                        data.stoneAO.push(aoValues);
-                    }
-                }
 
                 // Трава
                 for (let j = 0; j < data.grass.length; j++) {
                     if (grassId < 10000) {
                         const p = data.grass[j];
-                        tempMatrix.makeTranslation(p.x, p.y, p.z);
-                        canyonGrassMesh.setMatrixAt(grassId, tempMatrix);
+                        canyonTempMatrix.makeTranslation(p.x, p.y, p.z);
+                        canyonGrassMesh.setMatrixAt(grassId, canyonTempMatrix);
                         applyCachedAO(data.grassAO[j], grassAO0, grassAO1, grassAO2, grassAO3, grassAO4, grassAO5, grassId);
                         grassId++;
                     }
@@ -896,8 +937,8 @@
                 for (let j = 0; j < data.dirt.length; j++) {
                     if (dirtId < 20000) {
                         const p = data.dirt[j];
-                        tempMatrix.makeTranslation(p.x, p.y, p.z);
-                        canyonDirtMesh.setMatrixAt(dirtId, tempMatrix);
+                        canyonTempMatrix.makeTranslation(p.x, p.y, p.z);
+                        canyonDirtMesh.setMatrixAt(dirtId, canyonTempMatrix);
                         applyCachedAO(data.dirtAO[j], dirtAO0, dirtAO1, dirtAO2, dirtAO3, dirtAO4, dirtAO5, dirtId);
                         dirtId++;
                     }
@@ -907,8 +948,8 @@
                 for (let j = 0; j < data.stone.length; j++) {
                     if (stoneId < 60000) {
                         const p = data.stone[j];
-                        tempMatrix.makeTranslation(p.x, p.y, p.z);
-                        canyonStoneMesh.setMatrixAt(stoneId, tempMatrix);
+                        canyonTempMatrix.makeTranslation(p.x, p.y, p.z);
+                        canyonStoneMesh.setMatrixAt(stoneId, canyonTempMatrix);
                         applyCachedAO(data.stoneAO[j], stoneAO0, stoneAO1, stoneAO2, stoneAO3, stoneAO4, stoneAO5, stoneId);
                         stoneId++;
                     }
@@ -917,10 +958,10 @@
                 // Река
                 for (let j = 0; j < data.water.length; j++) {
                     if (waterId < 5000) {
-                        tempPosition.copy(data.water[j]);
-                        tempMatrix.makeTranslation(tempPosition.x, tempPosition.y, tempPosition.z);
-                        canyonWaterMeshDepth.setMatrixAt(waterId, tempMatrix);
-                        canyonWaterMeshColor.setMatrixAt(waterId, tempMatrix);
+                        canyonTempPosition.copy(data.water[j]);
+                        canyonTempMatrix.makeTranslation(canyonTempPosition.x, canyonTempPosition.y, canyonTempPosition.z);
+                        canyonWaterMeshDepth.setMatrixAt(waterId, canyonTempMatrix);
+                        canyonWaterMeshColor.setMatrixAt(waterId, canyonTempMatrix);
                         waterId++;
                     }
                 }
@@ -973,6 +1014,7 @@
 
             // Сброс сеточной карты при перегенерации
             generatedColumns.clear();
+            solidBlocks.clear();
 
             const totalPoints = blocksBehind + maxActiveBlocks + futurePathSize; // 80
             let currentPos = new THREE.Vector3(0, 0, 0);
@@ -989,6 +1031,21 @@
             const initialRenderCount = blocksBehind + maxActiveBlocks; // 55
             for (let i = 0; i < initialRenderCount; i++) {
                 createCanyonAndMeshesForIndex(i);
+            }
+
+            // Наполняем solidBlocks в самом начале игры
+            for (let i = 0; i < canyonData.length; i++) {
+                addCanyonToSolidBlocks(canyonData[i]);
+            }
+            for (let i = 0; i < blocksData.length; i++) {
+                const p = blocksData[i];
+                solidBlocks.add(getCoordKey(p.x, p.y, p.z));
+                solidBlocks.add(getCoordKey(p.x, p.y - 1, p.z));
+            }
+
+            // Рассчитываем AO для начального окружения
+            for (let i = 0; i < canyonData.length; i++) {
+                computeAOForCanyon(canyonData[i]);
             }
 
             jumpProgress = 0;
@@ -1026,10 +1083,8 @@
             const centerGridZ = Math.floor(camera.position.z / cloudScale); 
             
             let instanceId = 0;
-            const range = 50; 
-            
-            const tempMatrix = new THREE.Matrix4();
-            const tempPosition = new THREE.Vector3();
+            // Радиус 28 охватывает всю зону видимости тумана (210) и снижает нагрузку на CPU на 68%
+            const range = 28; 
             
             for (let dx = -range; dx <= range; dx++) {
                 for (let dz = -range; dz <= range; dz++) {
@@ -1044,11 +1099,11 @@
                             const x = gx * cloudScale + cloudOffsetX;
                             const z = gz * cloudScale; 
                             
-                            tempPosition.set(x, 70, z); 
-                            tempMatrix.makeTranslation(tempPosition.x, tempPosition.y, tempPosition.z);
+                            cloudTempPosition.set(x, 70, z); 
+                            cloudTempMatrix.makeTranslation(cloudTempPosition.x, cloudTempPosition.y, cloudTempPosition.z);
                             
-                            cloudMeshDepth.setMatrixAt(instanceId, tempMatrix);
-                            cloudMeshColor.setMatrixAt(instanceId, tempMatrix);
+                            cloudMeshDepth.setMatrixAt(instanceId, cloudTempMatrix);
+                            cloudMeshColor.setMatrixAt(instanceId, cloudTempMatrix);
                             instanceId++;
                         }
                     }
@@ -1059,10 +1114,8 @@
             cloudMeshColor.count = instanceId;
             cloudMeshColor.instanceMatrix.needsUpdate = true;
 
-            const skyDay = new THREE.Color(0x6ca1ff);      
-
-            scene.background.copy(skyDay);
-            scene.fog.color.copy(skyDay);
+            scene.background.copy(skyDayColor);
+            scene.fog.color.copy(skyDayColor);
 
             // Значения дублируются здесь для предотвращения сброса в игровом цикле
             sunLight.intensity = 0.35; // Мягкое солнце, ослабляющее тени
@@ -1103,11 +1156,21 @@
                 const oldGlowMesh = glowstoneMeshes.shift();
                 parkourGroup.remove(oldGlowMesh);
 
+                // Очищаем старые блоки из solidBlocks перед их удалением
+                const oldJumpBlock = blocksData[0];
+                if (oldJumpBlock) {
+                    solidBlocks.delete(getCoordKey(oldJumpBlock.x, oldJumpBlock.y, oldJumpBlock.z));
+                    solidBlocks.delete(getCoordKey(oldJumpBlock.x, oldJumpBlock.y - 1, oldJumpBlock.z));
+                }
+
                 // Очищаем рельеф старого блока каньона сзади
                 const oldCanyon = canyonData.shift();
-                if (oldCanyon && oldCanyon.coords) {
-                    for (let i = 0; i < oldCanyon.coords.length; i++) {
-                        generatedColumns.delete(oldCanyon.coords[i]);
+                if (oldCanyon) {
+                    removeCanyonFromSolidBlocks(oldCanyon);
+                    if (oldCanyon.coords) {
+                        for (let i = 0; i < oldCanyon.coords.length; i++) {
+                            generatedColumns.delete(oldCanyon.coords[i]);
+                        }
                     }
                 }
 
@@ -1119,7 +1182,11 @@
                 calculateNextPosition(lastPos);
                 blocksData.push(lastPos);
 
-                // Отрисовываем новый активный блок на горизонта
+                // Добавляем новые потенциальные блоки пути в solidBlocks
+                solidBlocks.add(getCoordKey(lastPos.x, lastPos.y, lastPos.z));
+                solidBlocks.add(getCoordKey(lastPos.x, lastPos.y - 1, lastPos.z));
+
+                // Отрисовываем новый активный блок на горизонте
                 addNewBlock(lastPos);
 
                 updateCanyonMeshes();
@@ -1142,25 +1209,24 @@
 
             camera.position.set(currentX, currentY, currentZ);
 
-            const currentDir = new THREE.Vector3().subVectors(endBlock, startBlock);
-            currentDir.y = 0; 
-            currentDir.normalize();
+            tempDir1.subVectors(endBlock, startBlock);
+            tempDir1.y = 0; 
+            tempDir1.normalize();
 
             const nextBlock = blocksData[blocksBehind + 1];
             const farBlock = blocksData[blocksBehind + 2];
-            const nextDir = new THREE.Vector3().subVectors(farBlock, nextBlock);
-            nextDir.y = 0;
-            nextDir.normalize();
+            tempDir2.subVectors(farBlock, nextBlock);
+            tempDir2.y = 0;
+            tempDir2.normalize();
 
-            const blendedDir = new THREE.Vector3().lerpVectors(currentDir, nextDir, jumpProgress);
-            blendedDir.normalize();
+            tempBlendedDir.lerpVectors(tempDir1, tempDir2, jumpProgress);
+            tempBlendedDir.normalize();
 
-            const lookTarget = camera.position.clone().add(blendedDir);
-
-            lookTarget.y = camera.position.y;
+            tempLookTarget.copy(camera.position).add(tempBlendedDir);
+            tempLookTarget.y = camera.position.y;
 
             dummy.position.copy(camera.position);
-            dummy.lookAt(lookTarget);
+            dummy.lookAt(tempLookTarget);
             dummy.rotateY(Math.PI); 
 
             if (deltaTime === 0) {
