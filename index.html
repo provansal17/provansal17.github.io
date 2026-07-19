@@ -1,3 +1,4 @@
+--- START OF FILE index.html ---
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -11,6 +12,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #000;
         }
+        /* Добавьте это правило, чтобы убрать отступы */
         canvas {
             display: block;
             position: absolute;
@@ -38,7 +40,7 @@
         const tempDir2 = new THREE.Vector3();
         const tempBlendedDir = new THREE.Vector3();
         const tempLookTarget = new THREE.Vector3();
-        const skyNightColor = new THREE.Color(0x050510); // Ночное небо
+        const skyDayColor = new THREE.Color(0x6ca1ff);
 
         const cloudTempMatrix = new THREE.Matrix4();
         const cloudTempPosition = new THREE.Vector3();
@@ -149,7 +151,7 @@
             return texture;
         }
 
-        // --- Текстура плоского Солнца ---
+        // --- Текстуры для плоских Солнца и Луны ---
         function createSunTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 16; canvas.height = 16;
@@ -170,32 +172,11 @@
             return texture;
         }
 
-        // --- Текстура Луны ---
-        function createMoonTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 16; canvas.height = 16;
-            const ctx = canvas.getContext('2d');
-            for(let y = 0; y < 16; y++) {
-                for(let x = 0; x < 16; x++) {
-                    let r = 180, g = 195, b = 220; 
-                    if (x >= 3 && x <= 12 && y >= 3 && y <= 12) {
-                        r = 220; g = 235; b = 255; 
-                    }
-                    ctx.fillStyle = `rgb(${r},${g},${b})`;
-                    ctx.fillRect(x, y, 1, 1);
-                }
-            }
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.magFilter = THREE.NearestFilter;
-            texture.minFilter = THREE.NearestFilter;
-            return texture;
-        }
-
         // --- Настройка сцены и рендерера ---
         const scene = new THREE.Scene();
-        scene.background = skyNightColor; 
+        scene.background = new THREE.Color(0x6ca1ff); 
         
-        scene.fog = new THREE.Fog(skyNightColor, 40, 130); 
+        scene.fog = new THREE.Fog(0x6ca1ff, 110, 210); 
 
         const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 1000);
         
@@ -209,59 +190,47 @@
 
         const dummy = new THREE.Object3D();
 
-        // --- Освещение ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.85); // Базовый рассеянный свет
+        // --- Освещение (Тени сделаны бледными и еле заметными за счет сильного фонового света) ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); // Повышено с 0.45 до 0.9
         scene.add(ambientLight);
 
-        const hemiLight = new THREE.HemisphereLight(0xaaccff, 0x111122, 0.4); 
+        const hemiLight = new THREE.HemisphereLight(0xa0c8ff, 0x444444, 0.5); // Повышено с 0.4 до 0.5
         scene.add(hemiLight);
 
-        const sunLight = new THREE.DirectionalLight(0xffffff, 0.0); // Отключено ночью
-        sunLight.castShadow = false;
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.35); // Снижено с 1.15 до 0.35, чтобы ослабить тени
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 1024;  // Небольшое разрешение способствует дополнительному размытию
+        sunLight.shadow.mapSize.height = 1024;
+        sunLight.shadow.camera.left = -40;
+        sunLight.shadow.camera.right = 40;
+        sunLight.shadow.camera.top = 40;
+        sunLight.shadow.camera.bottom = -40;
+        sunLight.shadow.camera.near = 10;
+        sunLight.shadow.camera.far = 1000; 
+        sunLight.shadow.bias = -0.0005; 
+        sunLight.shadow.radius = 4; // Радиус размытия краев тени
         scene.add(sunLight);
         scene.add(sunLight.target); 
 
-        // Лунный свет без теней, чтобы под блоками не было неестественного затемнения
-        const moonLight = new THREE.DirectionalLight(0xaaccff, 0.2); 
-        moonLight.castShadow = false; 
+        const moonLight = new THREE.DirectionalLight(0xaaccff, 0.0); // Всегда полдень
         scene.add(moonLight);
         scene.add(moonLight.target);
+
+        // Динамический пул PointLight для светящихся блоков (максимум 5 штук возле камеры)
+        const glowLights = [];
+        const maxGlowLights = 5;
+        for (let i = 0; i < maxGlowLights; i++) {
+            const light = new THREE.PointLight(0xffaa44, 0.0, 15);
+            light.decay = 1.0; 
+            scene.add(light);
+            glowLights.push(light);
+        }
 
         // --- Создание ПЛОСКИХ небесных тел (PlaneGeometry) ---
         const sunGeo = new THREE.PlaneGeometry(16, 16);
         const sunMat = new THREE.MeshBasicMaterial({map: createSunTexture(), transparent: false, fog: false, side: THREE.DoubleSide});
         const sunMesh = new THREE.Mesh(sunGeo, sunMat);
         scene.add(sunMesh);
-
-        const moonGeo = new THREE.PlaneGeometry(16, 16);
-        const moonMat = new THREE.MeshBasicMaterial({map: createMoonTexture(), transparent: false, fog: false, side: THREE.DoubleSide});
-        const moonMesh = new THREE.Mesh(moonGeo, moonMat);
-        scene.add(moonMesh);
-
-        // --- Генерация звездного неба ---
-        const starCount = 800;
-        const starGeometry = new THREE.BufferGeometry();
-        const starPositions = new Float32Array(starCount * 3);
-        for (let i = 0; i < starCount; i++) {
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.acos((Math.random() * 2) - 1); 
-            const distance = 140 + Math.random() * 60; 
-            
-            starPositions[i * 3] = distance * Math.sin(phi) * Math.cos(theta);
-            starPositions[i * 3 + 1] = Math.abs(distance * Math.cos(phi)); 
-            starPositions[i * 3 + 2] = distance * Math.sin(phi) * Math.sin(theta);
-        }
-        starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-        const starMaterial = new THREE.PointsMaterial({
-            color: 0xffffff,
-            size: 1.0,
-            sizeAttenuation: true,
-            transparent: true,
-            opacity: 0.85,
-            fog: false 
-        });
-        const starField = new THREE.Points(starGeometry, starMaterial);
-        scene.add(starField);
 
         // --- Облака по оригинальной сетке Minecraft ---
         const cloudPattern = [
@@ -295,9 +264,9 @@
         });
 
         const cloudColorMaterial = new THREE.MeshBasicMaterial({
-            color: 0x111122,
+            color: 0xffffff,
             transparent: true,
-            opacity: 0.45,      
+            opacity: 0.5,      
             fog: true,         
             depthWrite: false,
             depthFunc: THREE.LessEqual 
@@ -315,17 +284,17 @@
         const parkourGroup = new THREE.Group();
         scene.add(parkourGroup);
 
-        let blocksData = [];       // Координаты ВСЕХ просчитанных платформ
+        let blocksData = [];       // Координаты ВСЕХ просчитанных платформ (активных + будущих)
         let blockMeshes = [];      // Меши активных прыжковых блоков
         let glowstoneMeshes = [];  // Меши активных светящихся блоков
         let canyonData = [];       // Блоки каньона для активных платформ
         
         const maxActiveBlocks = 45; 
         const blocksBehind = 10;    
-        const futurePathSize = 25;  
+        const futurePathSize = 25;  // Буфер предсказания пути (всего 80 точек)
         let blocksPassed = 0;       
 
-        let dayTime = 600; 
+        let dayTime = 600; // 600 = Полдень (12:00)
 
         // Физика прыжка
         let jumpProgress = 0; 
@@ -359,8 +328,8 @@
         // --- НАСТРОЙКА ПОВЕРНУТЫХ ТЕКСТУР ВОДЫ ДЛЯ БОКОВЫХ ГРАНЕЙ ---
         const waterTextureTop = createWaterTexture();
         const waterTextureSide = waterTextureTop.clone();
-        waterTextureSide.rotation = Math.PI / 2; 
-        waterTextureSide.center.set(0.5, 0.5);   
+        waterTextureSide.rotation = Math.PI / 2; // Разворот на 90 градусов
+        waterTextureSide.center.set(0.5, 0.5);   // Вращение вокруг центра
         waterTextureSide.needsUpdate = true;
 
         const waterSideMaterial = new THREE.MeshStandardMaterial({
@@ -387,6 +356,8 @@
             depthFunc: THREE.LessEqual 
         });
 
+        // Массив материалов для 6 граней водного куба:
+        // 0: Right (+x), 1: Left (-x), 2: Top (+y), 3: Bottom (-y), 4: Front (+z), 5: Back (-z)
         const waterColorMaterials = [
             waterSideMaterial, 
             waterSideMaterial, 
@@ -402,7 +373,8 @@
             transparent: false
         });
 
-        // --- РАЗРАБОТКА VERTEX AMBIENT OCCLUSION (SMOOTH LIGHTING) ---
+        // --- РАЗРАБОТКА VERTEX AMBIENT OCCLUSION (SMOOTH LIGHTING) КАК В MINECRAFT ---
+        // Извлекаем нормали и локальные смещения вершин из стандартной BoxGeometry
         const boxGeomForAO = new THREE.BoxGeometry(1, 1, 1);
         const aoPosAttr = boxGeomForAO.getAttribute('position');
         const aoNormAttr = boxGeomForAO.getAttribute('normal');
@@ -414,21 +386,26 @@
             faceNormals.push(new THREE.Vector3(aoNormAttr.getX(i), aoNormAttr.getY(i), aoNormAttr.getZ(i)));
         }
 
+        // Хранилище карты занятых вокселей для расчетов AO на CPU
         const solidBlocks = new Set();
 
+        // Быстрое кодирование 3D координат в одно число без создания строк (0% нагрузки на сборщик мусора)
         function getCoordKey(x, y, z) {
             return (x + 100000) * 100000000 + (z + 100000) * 1000 + (y + 100);
         }
 
+        // Функция вычисления Ambient Occlusion для конкретной вершины блока на основе 3 соседних вокселей
         function getAOAtVertex(x, y, z, faceNormal, vertexOffset) {
             let side1X = x, side1Y = y, side1Z = z;
             let side2X = x, side2Y = y, side2Z = z;
             let cornerX = x, cornerY = y, cornerZ = z;
             
+            // Смещаемся на один слой в направлении нормали плоскости куба
             side1X += faceNormal.x; side1Y += faceNormal.y; side1Z += faceNormal.z;
             side2X += faceNormal.x; side2Y += faceNormal.y; side2Z += faceNormal.z;
             cornerX += faceNormal.x; cornerY += faceNormal.y; cornerZ += faceNormal.z;
             
+            // Находим две перпендикулярные оси для поиска угловых соседей
             if (faceNormal.x !== 0) {
                 side1Y += Math.sign(vertexOffset.y);
                 side2Z += Math.sign(vertexOffset.z);
@@ -450,17 +427,18 @@
             const s2 = solidBlocks.has(getCoordKey(side2X, side2Y, side2Z));
             const c = solidBlocks.has(getCoordKey(cornerX, cornerY, cornerZ));
             
+            // Настройка мягкого затемнения во внутренних углах блоков
             if (s1 && s2) {
-                return 0.55; 
+                return 0.55; // Мягкая темная тень (вместо жесткой 0.35)
             }
             const solidCount = (s1 ? 1 : 0) + (s2 ? 1 : 0) + (c ? 1 : 0);
             if (solidCount === 3) return 0.55;
-            if (solidCount === 2) return 0.70; 
-            if (solidCount === 1) return 0.85; 
-            return 1.0; 
+            if (solidCount === 2) return 0.70; // (вместо 0.55)
+            if (solidCount === 1) return 0.85; // (вместо 0.78)
+            return 1.0; // Полная яркость
         }
 
-        // Модификация шейдеров для поддержки запекания Vertex AO
+        // Модификация стандартных шейдеров Three.js для поддержки интерполяции Vertex AO
         function patchMaterialWithAO(material) {
             material.onBeforeCompile = function (shader) {
                 shader.vertexShader = shader.vertexShader.replace(
@@ -541,6 +519,7 @@
         }
         blockGeometry.setAttribute('vertexIndex', new THREE.BufferAttribute(vertexIndexArr, 1));
 
+        // Клонируем геометрию для каждого InstancedMesh, чтобы хранить уникальные инстанс-атрибуты AO
         const grassGeometry = blockGeometry.clone();
         const dirtGeometry = blockGeometry.clone();
         const stoneGeometry = blockGeometry.clone();
@@ -550,7 +529,7 @@
         const canyonDirtMesh = new THREE.InstancedMesh(dirtGeometry, canyonDirtMaterial, 20000);
         const canyonStoneMesh = new THREE.InstancedMesh(stoneGeometry, canyonStoneMaterial, 60000);
         const canyonWaterMeshDepth = new THREE.InstancedMesh(blockGeometry, waterDepthMaterial, 5000);
-        const canyonWaterMeshColor = new THREE.InstancedMesh(blockGeometry, waterColorMaterials, 5000); 
+        const canyonWaterMeshColor = new THREE.InstancedMesh(blockGeometry, waterColorMaterials, 5000); // Использует массив материалов
 
         canyonGrassMesh.castShadow = true;
         canyonGrassMesh.receiveShadow = true;
@@ -566,7 +545,7 @@
         scene.add(canyonWaterMeshDepth);
         scene.add(canyonWaterMeshColor);
 
-        // Настройка атрибутов вершинных теней AO
+        // Инициализация пустых массивов под инстанс-атрибуты AO в геометрии
         function setupAOMesh(geometry, maxCount) {
             const ao0 = new THREE.InstancedBufferAttribute(new Float32Array(maxCount * 4), 4);
             const ao1 = new THREE.InstancedBufferAttribute(new Float32Array(maxCount * 4), 4);
@@ -594,38 +573,10 @@
         setupAOMesh(dirtGeometry, 20000);
         setupAOMesh(stoneGeometry, 60000);
 
+        // Хранилище для абсолютной координатной сетки сгенерированных колонок (предотвращает наложение)
         const generatedColumns = new Set();
 
-        // --- Вспомогательная функция обновления текстур на уже созданных прыжковых блоках ---
-        function updateActiveBlockMaterials(type, texture) {
-            blockMeshes.forEach(mesh => {
-                if (mesh.material && Array.isArray(mesh.material)) {
-                    if (type === 'side') {
-                        [0, 1, 4, 5].forEach(idx => {
-                            if (mesh.material[idx]) {
-                                mesh.material[idx].map = texture;
-                                mesh.material[idx].color.setHex(0xffffff);
-                                mesh.material[idx].needsUpdate = true;
-                            }
-                        });
-                    } else if (type === 'top') {
-                        if (mesh.material[2]) {
-                            mesh.material[2].map = texture;
-                            mesh.material[2].color.setHex(0xffffff);
-                            mesh.material[2].needsUpdate = true;
-                        }
-                    } else if (type === 'bottom') {
-                        if (mesh.material[3]) {
-                            mesh.material[3].map = texture;
-                            mesh.material[3].color.setHex(0xffffff);
-                            mesh.material[3].needsUpdate = true;
-                        }
-                    }
-                }
-            });
-        }
-
-        // --- Единый центр обновления текстур ---
+        // --- Единый центр обновления текстур во всем мире ---
         const textureLoader = new THREE.TextureLoader();
 
         function updateTexture(type, texture) {
@@ -643,7 +594,6 @@
                     canyonGrassMaterials[idx].color.setHex(0xffffff);
                     canyonGrassMaterials[idx].needsUpdate = true;
                 });
-                updateActiveBlockMaterials('side', texture);
             } else if (type === 'top') {
                 materials[2].map = texture;
                 materials[2].color.setHex(0xffffff);
@@ -652,7 +602,6 @@
                 canyonGrassMaterials[2].map = texture;
                 canyonGrassMaterials[2].color.setHex(0xffffff);
                 canyonGrassMaterials[2].needsUpdate = true;
-                updateActiveBlockMaterials('top', texture);
             } else if (type === 'bottom') {
                 materials[3].map = texture;
                 materials[3].color.setHex(0xffffff);
@@ -665,7 +614,6 @@
                 canyonDirtMaterial.map = texture;
                 canyonDirtMaterial.color.setHex(0xffffff);
                 canyonDirtMaterial.needsUpdate = true;
-                updateActiveBlockMaterials('bottom', texture);
             } else if (type === 'stone') {
                 stoneMaterial.map = texture;
                 stoneMaterial.color.setHex(0xffffff);
@@ -679,6 +627,7 @@
                 glowstoneMaterial.color.setHex(0xffffff);
                 glowstoneMaterial.needsUpdate = true;
             } else if (type === 'water') {
+                // Корректное обновление как верхней, так и повернутой боковой текстуры воды при внешней загрузке
                 const rotatedTexture = texture.clone();
                 rotatedTexture.rotation = Math.PI / 2;
                 rotatedTexture.center.set(0.5, 0.5);
@@ -694,6 +643,7 @@
             }
         }
 
+        // --- Автоматическая загрузка локальных текстур из папки assets/ ---
         function loadLocalTexture(path, materialType) {
             textureLoader.load(
                 path,
@@ -721,6 +671,7 @@
             const randY = Math.random();
             let dy = 0;
 
+            // Стабилизация высоты паркура около уровня Y = 0 (предотвращает уход под воду и подъем выше облаков)
             if (prevPos.y > 2) {
                 if (randY < 0.45) dy = -1;
             } else if (prevPos.y < -2) {
@@ -781,59 +732,14 @@
             }
         }
 
-        // --- АЛГОРИТМ РАСПРОСТРАНЕНИЯ СВЕТА В СТИЛЕ MINECRAFT (VOXEL LIGHTING) ---
-        const tempColor = new THREE.Color();
-        const nightAmbientColor = new THREE.Color(0x18182c);   // Холодный синий полумрак
-        const glowstoneDayColor = new THREE.Color(0xfff5e6);   // Яркий, слегка теплый дневной свет
-
-        function getVoxelLightColor(x, y, z, canyonIndex, targetColor) {
-            let maxLightFactor = 0;
-            const startGlow = Math.max(0, canyonIndex - 6);
-            const endGlow = Math.min(blocksData.length - 1, canyonIndex + 6);
-            
-            for (let i = startGlow; i <= endGlow; i++) {
-                const gx = blocksData[i].x;
-                const gy = blocksData[i].y - 1; 
-                const gz = blocksData[i].z;
-                
-                const dx = x - gx;
-                const dy = y - gy;
-                const dz = z - gz;
-                
-                // Радиальное Евклидово расстояние для идеально мягкого сферического свечения
-                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                
-                // Плавный спад в пределах 15 блоков
-                const radius = 15.0;
-                const t = Math.min(1.0, dist / radius);
-                
-                // Степенная функция непрерывности C^2 гарантирует отсутствие видимых границ на стыках
-                const lightFactor = Math.pow(1.0 - t * t, 3.0);
-                if (lightFactor > maxLightFactor) {
-                    maxLightFactor = lightFactor;
-                }
-            }
-            
-            // Смешиваем холодный ночной свет и теплое дневное свечение без швов
-            targetColor.copy(nightAmbientColor).lerp(glowstoneDayColor, maxLightFactor);
-        }
-
         // --- СОЗДАНИЕ 3D-МЕШЕЙ И КАНЬОНА НА ОСНОВЕ ПРЕДВАРИТЕЛЬНОГО ПУТИ ---
         function createCanyonAndMeshesForIndex(index) {
             const gridPos = blocksData[index];
 
-            // 1. Создаем обычный блок для прыжка (сверху) с запеченным воксельным цветом
-            const blockMaterials = materials.map(m => {
-                const cloned = m.clone();
-                const lightColor = new THREE.Color();
-                getVoxelLightColor(gridPos.x, gridPos.y, gridPos.z, index, lightColor);
-                cloned.color.copy(lightColor);
-                return cloned;
-            });
-
-            const mesh = new THREE.Mesh(blockGeometry, blockMaterials);
+            // 1. Создаем обычный блок для прыжка (сверху)
+            const mesh = new THREE.Mesh(blockGeometry, materials);
             mesh.position.copy(gridPos);
-            mesh.castShadow = false; // Отключено отбрасывание теней прыжковыми блоками
+            mesh.castShadow = true;     
             mesh.receiveShadow = true;  
             parkourGroup.add(mesh);
             blockMeshes.push(mesh);
@@ -843,20 +749,25 @@
             glowPos.y -= 1; 
             const glowMesh = new THREE.Mesh(blockGeometry, glowstoneMaterial);
             glowMesh.position.copy(glowPos);
-            glowMesh.castShadow = false; // Отключено отбрасывание теней светящимися блоками
+            glowMesh.castShadow = true;
             glowMesh.receiveShadow = true;
             parkourGroup.add(glowMesh);
             glowstoneMeshes.push(glowMesh); 
 
+            // Порядковый номер шага в каньоне
+            const blockId = canyonData.length;
+
             // --- ГЕНЕРАЦИЯ КАНЬОНА НА ОСНОВЕ АБСОЛЮТНОЙ КООРДИНАТНОЙ СЕТКИ И ДИСТАНЦИЙ ---
             const localCanyon = { grass: [], dirt: [], stone: [], water: [], coords: [] };
 
+            // Радиус увеличен до 12, чтобы каньон не выглядел узким и "картонным"
             const radius = 12;
             const startX = gridPos.x - radius;
             const endX = gridPos.x + radius;
             const startZ = gridPos.z - radius;
             const endZ = gridPos.z + radius;
 
+            // Локализация поиска: проверяем только близкие блоки трассы вместо всех 80
             const searchStart = Math.max(0, index - 15);
             const searchEnd = Math.min(blocksData.length - 1, index + 15);
 
@@ -950,9 +861,10 @@
 
         // --- ГЕНЕРАЦИЯ ОДИНОЧНОГО НОВОГО БЛОКА В РЕАЛЬНОМ ВРЕМЕНИ ---
         function addNewBlock(pos) {
-            const newIndex = blocksBehind + maxActiveBlocks - 1; 
+            const newIndex = blocksBehind + maxActiveBlocks - 1;
             createCanyonAndMeshesForIndex(newIndex);
 
+            // Инкрементально добавляем только новый каньон и блок в solidBlocks
             const newCanyon = canyonData[canyonData.length - 1];
             addCanyonToSolidBlocks(newCanyon);
 
@@ -960,9 +872,11 @@
             solidBlocks.add(getCoordKey(newJumpBlock.x, newJumpBlock.y, newJumpBlock.z));
             solidBlocks.add(getCoordKey(newJumpBlock.x, newJumpBlock.y - 1, newJumpBlock.z));
 
+            // Сразу рассчитываем AO для нового каньона
             computeAOForCanyon(newCanyon);
         }
 
+        // Вспомогательная функция для быстрого копирования кэшированного AO
         function applyCachedAO(aoValues, ao0, ao1, ao2, ao3, ao4, ao5, instanceId) {
             const offset = instanceId * 4;
             for (let i = 0; i < 24; i++) {
@@ -976,13 +890,14 @@
             }
         }
 
-        // --- Рендеринг и обновление запекания освещения вокселей ---
+        // --- Отрисовка скал и реки каньона через InstancedMesh ---
         function updateCanyonMeshes() {
             let grassId = 0;
             let dirtId = 0;
             let stoneId = 0;
             let waterId = 0;
 
+            // Извлекаем массивы инстанс-атрибутов AO для модификации
             const grassAO0 = grassGeometry.getAttribute('aAO0').array;
             const grassAO1 = grassGeometry.getAttribute('aAO1').array;
             const grassAO2 = grassGeometry.getAttribute('aAO2').array;
@@ -1006,7 +921,6 @@
 
             for (let i = 0; i < canyonData.length; i++) {
                 const data = canyonData[i];
-                const canyonIndex = i;
 
                 // Трава
                 for (let j = 0; j < data.grass.length; j++) {
@@ -1015,11 +929,6 @@
                         canyonTempMatrix.makeTranslation(p.x, p.y, p.z);
                         canyonGrassMesh.setMatrixAt(grassId, canyonTempMatrix);
                         applyCachedAO(data.grassAO[j], grassAO0, grassAO1, grassAO2, grassAO3, grassAO4, grassAO5, grassId);
-                        
-                        // Рассчитываем и устанавливаем воксельный цвет освещения
-                        getVoxelLightColor(p.x, p.y, p.z, canyonIndex, tempColor);
-                        canyonGrassMesh.setColorAt(grassId, tempColor);
-                        
                         grassId++;
                     }
                 }
@@ -1031,11 +940,6 @@
                         canyonTempMatrix.makeTranslation(p.x, p.y, p.z);
                         canyonDirtMesh.setMatrixAt(dirtId, canyonTempMatrix);
                         applyCachedAO(data.dirtAO[j], dirtAO0, dirtAO1, dirtAO2, dirtAO3, dirtAO4, dirtAO5, dirtId);
-                        
-                        // Рассчитываем и устанавливаем воксельный цвет освещения
-                        getVoxelLightColor(p.x, p.y, p.z, canyonIndex, tempColor);
-                        canyonDirtMesh.setColorAt(dirtId, tempColor);
-                        
                         dirtId++;
                     }
                 }
@@ -1047,11 +951,6 @@
                         canyonTempMatrix.makeTranslation(p.x, p.y, p.z);
                         canyonStoneMesh.setMatrixAt(stoneId, canyonTempMatrix);
                         applyCachedAO(data.stoneAO[j], stoneAO0, stoneAO1, stoneAO2, stoneAO3, stoneAO4, stoneAO5, stoneId);
-                        
-                        // Рассчитываем и устанавливаем воксельный цвет освещения
-                        getVoxelLightColor(p.x, p.y, p.z, canyonIndex, tempColor);
-                        canyonStoneMesh.setColorAt(stoneId, tempColor);
-                        
                         stoneId++;
                     }
                 }
@@ -1059,15 +958,10 @@
                 // Река
                 for (let j = 0; j < data.water.length; j++) {
                     if (waterId < 5000) {
-                        const p = data.water[j];
-                        canyonTempMatrix.makeTranslation(p.x, p.y, p.z);
+                        canyonTempPosition.copy(data.water[j]);
+                        canyonTempMatrix.makeTranslation(canyonTempPosition.x, canyonTempPosition.y, canyonTempPosition.z);
                         canyonWaterMeshDepth.setMatrixAt(waterId, canyonTempMatrix);
                         canyonWaterMeshColor.setMatrixAt(waterId, canyonTempMatrix);
-                        
-                        // Рассчитываем и устанавливаем воксельный цвет освещения
-                        getVoxelLightColor(p.x, p.y, p.z, canyonIndex, tempColor);
-                        canyonWaterMeshColor.setColorAt(waterId, tempColor);
-                        
                         waterId++;
                     }
                 }
@@ -1075,7 +969,6 @@
 
             canyonGrassMesh.count = grassId;
             canyonGrassMesh.instanceMatrix.needsUpdate = true;
-            if (canyonGrassMesh.instanceColor) canyonGrassMesh.instanceColor.needsUpdate = true;
             grassGeometry.getAttribute('aAO0').needsUpdate = true;
             grassGeometry.getAttribute('aAO1').needsUpdate = true;
             grassGeometry.getAttribute('aAO2').needsUpdate = true;
@@ -1085,7 +978,6 @@
 
             canyonDirtMesh.count = dirtId;
             canyonDirtMesh.instanceMatrix.needsUpdate = true;
-            if (canyonDirtMesh.instanceColor) canyonDirtMesh.instanceColor.needsUpdate = true;
             dirtGeometry.getAttribute('aAO0').needsUpdate = true;
             dirtGeometry.getAttribute('aAO1').needsUpdate = true;
             dirtGeometry.getAttribute('aAO2').needsUpdate = true;
@@ -1095,7 +987,6 @@
 
             canyonStoneMesh.count = stoneId;
             canyonStoneMesh.instanceMatrix.needsUpdate = true;
-            if (canyonStoneMesh.instanceColor) canyonStoneMesh.instanceColor.needsUpdate = true;
             stoneGeometry.getAttribute('aAO0').needsUpdate = true;
             stoneGeometry.getAttribute('aAO1').needsUpdate = true;
             stoneGeometry.getAttribute('aAO2').needsUpdate = true;
@@ -1108,7 +999,6 @@
 
             canyonWaterMeshColor.count = waterId;
             canyonWaterMeshColor.instanceMatrix.needsUpdate = true;
-            if (canyonWaterMeshColor.instanceColor) canyonWaterMeshColor.instanceColor.needsUpdate = true;
         }
 
         // --- ГЕНЕРАЦИЯ НАЧАЛЬНОЙ ТРАССЫ ПАРКУРА ---
@@ -1122,10 +1012,11 @@
             canyonData = [];
             generatorYaw = 0; 
 
+            // Сброс сеточной карты при перегенерации
             generatedColumns.clear();
             solidBlocks.clear();
 
-            const totalPoints = blocksBehind + maxActiveBlocks + futurePathSize; 
+            const totalPoints = blocksBehind + maxActiveBlocks + futurePathSize; // 80
             let currentPos = new THREE.Vector3(0, 0, 0);
             for (let i = 0; i < totalPoints; i++) {
                 const gridPos = new THREE.Vector3(
@@ -1137,11 +1028,12 @@
                 calculateNextPosition(currentPos);
             }
 
-            const initialRenderCount = blocksBehind + maxActiveBlocks; 
+            const initialRenderCount = blocksBehind + maxActiveBlocks; // 55
             for (let i = 0; i < initialRenderCount; i++) {
                 createCanyonAndMeshesForIndex(i);
             }
 
+            // Наполняем solidBlocks в самом начале игры
             for (let i = 0; i < canyonData.length; i++) {
                 addCanyonToSolidBlocks(canyonData[i]);
             }
@@ -1151,6 +1043,7 @@
                 solidBlocks.add(getCoordKey(p.x, p.y - 1, p.z));
             }
 
+            // Рассчитываем AO для начального окружения
             for (let i = 0; i < canyonData.length; i++) {
                 computeAOForCanyon(canyonData[i]);
             }
@@ -1165,12 +1058,13 @@
         function updateDayNightCycle(deltaTime) {
             dayTime = 600;
 
+            // Солнце зафиксировано строго вертикально над игроком
             const sunX = 0;
-            const sunY = -200; 
+            const sunY = 200; 
             const sunZ = 0;
 
             const moonX = 0;
-            const moonY = 200;
+            const moonY = -200;
             const moonZ = 0;
 
             sunLight.position.set(camera.position.x + sunX, camera.position.y + sunY, camera.position.z + sunZ);
@@ -1179,10 +1073,8 @@
 
             moonLight.position.set(camera.position.x + moonX, camera.position.y + moonY, camera.position.z + moonZ);
             moonLight.target.position.set(camera.position.x, camera.position.y, camera.position.z);
-            moonMesh.position.copy(moonLight.position);
 
             sunMesh.lookAt(camera.position);
-            moonMesh.lookAt(camera.position);
 
             // --- БЕСКОНЕЧНЫЙ СДВИГ И ГЕНЕРАЦИЯ ОБЪЕМНЫХ 3D ОБЛАКОВ ---
             cloudOffsetX -= 2.0 * deltaTime; 
@@ -1191,6 +1083,7 @@
             const centerGridZ = Math.floor(camera.position.z / cloudScale); 
             
             let instanceId = 0;
+            // Радиус 28 охватывает всю зону видимости тумана (210) и снижает нагрузку на CPU на 68%
             const range = 28; 
             
             for (let dx = -range; dx <= range; dx++) {
@@ -1221,27 +1114,30 @@
             cloudMeshColor.count = instanceId;
             cloudMeshColor.instanceMatrix.needsUpdate = true;
 
-            scene.background.copy(skyNightColor);
-            scene.fog.color.copy(skyNightColor);
+            scene.background.copy(skyDayColor);
+            scene.fog.color.copy(skyDayColor);
 
-            sunLight.intensity = 0.0;
-            sunLight.castShadow = false;
-
-            moonLight.intensity = 0.15; 
-            moonLight.color.setHex(0xaaccff);
-            moonLight.castShadow = false; // Убеждаемся, что тени от луны отключены ночью
-
-            cloudColorMaterial.color.setHex(0x111122); 
-            cloudColorMaterial.opacity = 0.45;
+            // Значения дублируются здесь для предотвращения сброса в игровом цикле
+            sunLight.intensity = 0.35; // Мягкое солнце, ослабляющее тени
+            moonLight.intensity = 0;
+            sunLight.color.setHex(0xffffff);
+            cloudColorMaterial.color.setHex(0xffffff);
             
-            hemiLight.color.setHex(0x111122);
-            hemiLight.intensity = 0.15; 
+            hemiLight.color.setHex(0xa0c8ff);
+            hemiLight.intensity = 0.5; // Сильный фоновый небесный свет
 
             ambientLight.color.setHex(0xffffff);
-            ambientLight.intensity = 0.85; 
+            ambientLight.intensity = 0.9; // Сильное фоновое заполнение теней
 
-            // Центрируем звездное небо по положению камеры
-            starField.position.copy(camera.position);
+            // Подсветка под светящимися блоками
+            for (let i = 0; i < maxGlowLights; i++) {
+                if (i < blocksData.length) {
+                    glowLights[i].position.set(blocksData[i].x, blocksData[i].y - 1, blocksData[i].z);
+                    glowLights[i].intensity = 1.5; 
+                } else {
+                    glowLights[i].intensity = 0;
+                }
+            }
         }
 
         // --- Перемещение ---
@@ -1255,25 +1151,19 @@
 
             if (jumpProgress >= 1) {
                 const oldMesh = blockMeshes.shift();
-                if (oldMesh) {
-                    parkourGroup.remove(oldMesh);
-                    // Очищаем кэш текстур материалов для удаленного прыжкового блока
-                    if (Array.isArray(oldMesh.material)) {
-                        oldMesh.material.forEach(mat => mat.dispose());
-                    } else if (oldMesh.material) {
-                        oldMesh.material.dispose();
-                    }
-                }
+                parkourGroup.remove(oldMesh);
 
                 const oldGlowMesh = glowstoneMeshes.shift();
                 parkourGroup.remove(oldGlowMesh);
 
+                // Очищаем старые блоки из solidBlocks перед их удалением
                 const oldJumpBlock = blocksData[0];
                 if (oldJumpBlock) {
                     solidBlocks.delete(getCoordKey(oldJumpBlock.x, oldJumpBlock.y, oldJumpBlock.z));
                     solidBlocks.delete(getCoordKey(oldJumpBlock.x, oldJumpBlock.y - 1, oldJumpBlock.z));
                 }
 
+                // Очищаем рельеф старого блока каньона сзади
                 const oldCanyon = canyonData.shift();
                 if (oldCanyon) {
                     removeCanyonFromSolidBlocks(oldCanyon);
@@ -1284,15 +1174,19 @@
                     }
                 }
 
+                // Сдвигаем общие координаты на 1 шаг вперед
                 blocksData.shift();
 
+                // Добавляем одну новую будущую точку в конец буфера
                 const lastPos = blocksData[blocksData.length - 1].clone();
                 calculateNextPosition(lastPos);
                 blocksData.push(lastPos);
 
+                // Добавляем новые потенциальные блоки пути в solidBlocks
                 solidBlocks.add(getCoordKey(lastPos.x, lastPos.y, lastPos.z));
                 solidBlocks.add(getCoordKey(lastPos.x, lastPos.y - 1, lastPos.z));
 
+                // Отрисовываем новый активный блок на горизонте
                 addNewBlock(lastPos);
 
                 updateCanyonMeshes();
