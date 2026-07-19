@@ -48,7 +48,11 @@
         const canyonTempMatrix = new THREE.Matrix4();
         const canyonTempPosition = new THREE.Vector3();
 
-        let isNight = false; // По умолчанию день
+        // Проверяем хэш в URL при загрузке страницы (для ОБС или повторного открытия)
+        let isNight = false;
+        if (window.location.hash === '#night') {
+            isNight = true;
+        }
 
         // --- Генерация пиксельных текстур по умолчанию (HTML5 Canvas) ---
         function createPixelTexture(type) {
@@ -199,9 +203,9 @@
         const scene = new THREE.Scene();
         
         // Создаем независимые объекты цвета во избежание изменения значений по ссылке
-        scene.background = new THREE.Color().copy(skyDayColor); 
+        scene.background = new THREE.Color().copy(isNight ? skyNightColor : skyDayColor); 
         
-        scene.fog = new THREE.Fog(new THREE.Color().copy(skyDayColor), 110, 210); 
+        scene.fog = new THREE.Fog(new THREE.Color().copy(isNight ? skyNightColor : skyDayColor), 110, 210); 
 
         const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 1000);
         
@@ -1418,8 +1422,14 @@
         function toggleNightMode() {
             isNight = !isNight;
 
+            // Обновляем хэш в адресной строке без перезагрузки страницы
+            if (isNight) {
+                history.replaceState(null, null, '#night');
+            } else {
+                history.replaceState(null, null, '#day');
+            }
+
             // Динамически перекрашиваем материалы всех активных прыжковых блоков
-            // Исправлено: теперь берется актуальный, текущий индекс блока в структуре игры
             blockMeshes.forEach((mesh, index) => {
                 if (mesh.material && Array.isArray(mesh.material)) {
                     mesh.material.forEach(mat => {
