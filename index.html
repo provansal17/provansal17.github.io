@@ -210,7 +210,7 @@
         const dummy = new THREE.Object3D();
 
         // --- Освещение ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.85); // Направленная подсветка для запекания цветов
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.85); // Базовый рассеянный свет
         scene.add(ambientLight);
 
         const hemiLight = new THREE.HemisphereLight(0xaaccff, 0x111122, 0.4); 
@@ -221,19 +221,9 @@
         scene.add(sunLight);
         scene.add(sunLight.target); 
 
-        // Лунный свет с тенями
+        // Лунный свет без теней, чтобы под блоками не было неестественного затемнения
         const moonLight = new THREE.DirectionalLight(0xaaccff, 0.2); 
-        moonLight.castShadow = true;
-        moonLight.shadow.mapSize.width = 1024;  
-        moonLight.shadow.mapSize.height = 1024;
-        moonLight.shadow.camera.left = -40;
-        moonLight.shadow.camera.right = 40;
-        moonLight.shadow.camera.top = 40;
-        moonLight.shadow.camera.bottom = -40;
-        moonLight.shadow.camera.near = 10;
-        moonLight.shadow.camera.far = 1000; 
-        moonLight.shadow.bias = -0.0005; 
-        moonLight.shadow.radius = 4;
+        moonLight.castShadow = false; 
         scene.add(moonLight);
         scene.add(moonLight.target);
 
@@ -606,6 +596,35 @@
 
         const generatedColumns = new Set();
 
+        // --- Вспомогательная функция обновления текстур на уже созданных прыжковых блоках ---
+        function updateActiveBlockMaterials(type, texture) {
+            blockMeshes.forEach(mesh => {
+                if (mesh.material && Array.isArray(mesh.material)) {
+                    if (type === 'side') {
+                        [0, 1, 4, 5].forEach(idx => {
+                            if (mesh.material[idx]) {
+                                mesh.material[idx].map = texture;
+                                mesh.material[idx].color.setHex(0xffffff);
+                                mesh.material[idx].needsUpdate = true;
+                            }
+                        });
+                    } else if (type === 'top') {
+                        if (mesh.material[2]) {
+                            mesh.material[2].map = texture;
+                            mesh.material[2].color.setHex(0xffffff);
+                            mesh.material[2].needsUpdate = true;
+                        }
+                    } else if (type === 'bottom') {
+                        if (mesh.material[3]) {
+                            mesh.material[3].map = texture;
+                            mesh.material[3].color.setHex(0xffffff);
+                            mesh.material[3].needsUpdate = true;
+                        }
+                    }
+                }
+            });
+        }
+
         // --- Единый центр обновления текстур ---
         const textureLoader = new THREE.TextureLoader();
 
@@ -624,6 +643,7 @@
                     canyonGrassMaterials[idx].color.setHex(0xffffff);
                     canyonGrassMaterials[idx].needsUpdate = true;
                 });
+                updateActiveBlockMaterials('side', texture);
             } else if (type === 'top') {
                 materials[2].map = texture;
                 materials[2].color.setHex(0xffffff);
@@ -632,6 +652,7 @@
                 canyonGrassMaterials[2].map = texture;
                 canyonGrassMaterials[2].color.setHex(0xffffff);
                 canyonGrassMaterials[2].needsUpdate = true;
+                updateActiveBlockMaterials('top', texture);
             } else if (type === 'bottom') {
                 materials[3].map = texture;
                 materials[3].color.setHex(0xffffff);
@@ -644,6 +665,7 @@
                 canyonDirtMaterial.map = texture;
                 canyonDirtMaterial.color.setHex(0xffffff);
                 canyonDirtMaterial.needsUpdate = true;
+                updateActiveBlockMaterials('bottom', texture);
             } else if (type === 'stone') {
                 stoneMaterial.map = texture;
                 stoneMaterial.color.setHex(0xffffff);
@@ -811,7 +833,7 @@
 
             const mesh = new THREE.Mesh(blockGeometry, blockMaterials);
             mesh.position.copy(gridPos);
-            mesh.castShadow = true;     
+            mesh.castShadow = false; // Отключено отбрасывание теней прыжковыми блоками
             mesh.receiveShadow = true;  
             parkourGroup.add(mesh);
             blockMeshes.push(mesh);
@@ -821,7 +843,7 @@
             glowPos.y -= 1; 
             const glowMesh = new THREE.Mesh(blockGeometry, glowstoneMaterial);
             glowMesh.position.copy(glowPos);
-            glowMesh.castShadow = true;
+            glowMesh.castShadow = false; // Отключено отбрасывание теней светящимися блоками
             glowMesh.receiveShadow = true;
             parkourGroup.add(glowMesh);
             glowstoneMeshes.push(glowMesh); 
@@ -1207,7 +1229,7 @@
 
             moonLight.intensity = 0.15; 
             moonLight.color.setHex(0xaaccff);
-            moonLight.castShadow = true;
+            moonLight.castShadow = false; // Убеждаемся, что тени от луны отключены ночью
 
             cloudColorMaterial.color.setHex(0x111122); 
             cloudColorMaterial.opacity = 0.45;
