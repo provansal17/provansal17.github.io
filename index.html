@@ -210,7 +210,7 @@
         const dummy = new THREE.Object3D();
 
         // --- Освещение ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Базовый рассеянный свет
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.85); // Направленная подсветка для запекания цветов
         scene.add(ambientLight);
 
         const hemiLight = new THREE.HemisphereLight(0xaaccff, 0x111122, 0.4); 
@@ -762,36 +762,38 @@
         // --- АЛГОРИТМ РАСПРОСТРАНЕНИЯ СВЕТА В СТИЛЕ MINECRAFT (VOXEL LIGHTING) ---
         const tempColor = new THREE.Color();
         const nightAmbientColor = new THREE.Color(0x18182c);   // Холодный синий полумрак
-        const glowstoneLightColor = new THREE.Color(0xffbb66); // Теплое свечение светокамня
+        const glowstoneDayColor = new THREE.Color(0xfff5e6);   // Яркий, слегка теплый дневной свет
 
         function getVoxelLightColor(x, y, z, canyonIndex, targetColor) {
-            let maxLight = 0;
-            const startGlow = Math.max(0, canyonIndex - 5);
-            const endGlow = Math.min(blocksData.length - 1, canyonIndex + 5);
+            let maxLightFactor = 0;
+            const startGlow = Math.max(0, canyonIndex - 6);
+            const endGlow = Math.min(blocksData.length - 1, canyonIndex + 6);
             
             for (let i = startGlow; i <= endGlow; i++) {
                 const gx = blocksData[i].x;
                 const gy = blocksData[i].y - 1; 
                 const gz = blocksData[i].z;
                 
-                const dx = Math.abs(x - gx);
-                const dy = Math.abs(y - gy);
-                const dz = Math.abs(z - gz);
-                const manhattanDist = dx + dy + dz;
+                const dx = x - gx;
+                const dy = y - gy;
+                const dz = z - gz;
                 
-                // Красивое затухание в пределах 12 блоков
-                const light = Math.max(0.0, 1.0 - manhattanDist / 12.0);
-                if (light > maxLight) {
-                    maxLight = light;
+                // Радиальное Евклидово расстояние для идеально мягкого сферического свечения
+                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                
+                // Плавный спад в пределах 15 блоков
+                const radius = 15.0;
+                const t = Math.min(1.0, dist / radius);
+                
+                // Степенная функция непрерывности C^2 гарантирует отсутствие видимых границ на стыках
+                const lightFactor = Math.pow(1.0 - t * t, 3.0);
+                if (lightFactor > maxLightFactor) {
+                    maxLightFactor = lightFactor;
                 }
             }
             
-            const lightFactor = Math.pow(maxLight, 1.5);
-            
-            // Интерполируем цвета и масштабируем итоговую яркость
-            targetColor.copy(nightAmbientColor).lerp(glowstoneLightColor, lightFactor);
-            const brightness = 0.15 + 0.85 * lightFactor;
-            targetColor.multiplyScalar(brightness);
+            // Смешиваем холодный ночной свет и теплое дневное свечение без швов
+            targetColor.copy(nightAmbientColor).lerp(glowstoneDayColor, maxLightFactor);
         }
 
         // --- СОЗДАНИЕ 3D-МЕШЕЙ И КАНЬОНА НА ОСНОВЕ ПРЕДВАРИТЕЛЬНОГО ПУТИ ---
@@ -1214,7 +1216,7 @@
             hemiLight.intensity = 0.15; 
 
             ambientLight.color.setHex(0xffffff);
-            ambientLight.intensity = 0.8; 
+            ambientLight.intensity = 0.85; 
 
             // Центрируем звездное небо по положению камеры
             starField.position.copy(camera.position);
