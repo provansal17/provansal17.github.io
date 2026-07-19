@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minecraft Infinite Parkour - Shader Edition</title>
+    <title>Minecraft Infinite Canyon Parkour</title>
     <style>
         body {
             margin: 0;
@@ -129,24 +129,26 @@
         #crosshair::before { top: 4px; left: 0; width: 10px; height: 2px; }
         #crosshair::after { top: 0; left: 4px; width: 2px; height: 10px; }
     </style>
-    <!-- Подключаем Three.js через CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- Карта импорта модулей для ES Modules -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js"
+            }
+        }
+    </script>
 </head>
 <body>
 
     <div id="crosshair"></div>
 
     <div id="ui-container">
-        <h1>Паркур Шейдеры</h1>
-        <div class="subtitle">Свет, тени и цикл суток</div>
+        <h1>Паркур Каньон</h1>
+        <div class="subtitle">Свет, тени и мягкие стыки</div>
         
         <div class="control-group">
             <button id="btn-generate">Перегенерировать</button>
-        </div>
-
-        <div class="control-group">
-            <label for="slider-time-speed">Скорость времени (1.0 = как в Minecraft, 20 мин)</label>
-            <input type="range" id="slider-time-speed" min="0" max="25" step="0.5" value="1.0">
         </div>
 
         <div class="control-group">
@@ -156,14 +158,14 @@
 
         <div id="stats">
             Пройдено блоков: <span id="block-count" class="highlight">0</span><br>
-            Время суток: <span id="time-display" class="highlight">12:00</span>
+            Время суток: <span id="time-display" class="highlight">Полдень (12:00)</span>
         </div>
 
         <!-- Раздел загрузки своих текстур -->
         <div class="texture-upload-group">
             <div class="texture-title">Свои текстуры (PNG/JPG)</div>
             <div style="font-size: 10px; color: #aaa; margin-bottom: 10px; line-height: 1.3;">
-                По умолчанию сайт пытается загрузить файлы <b style="color:#fff">top.png</b>, <b style="color:#fff">side.png</b> и <b style="color:#fff">bottom.png</b> из папки <b style="color:#fff">textures/</b> рядом с сайтом (требуется запуск через локальный сервер).
+                По умолчанию игра пытается загрузить файлы <b style="color:#fff">top.png</b>, <b style="color:#fff">side.png</b>, <b style="color:#fff">bottom.png</b>, <b style="color:#fff">stone.png</b>, <b style="color:#fff">glowstone.png</b> и <b style="color:#fff">water.png</b> из папки <b style="color:#fff">assets/</b> рядом с сайтом (требуется запуск через локальный сервер).
             </div>
             
             <label for="upload-top">Загрузить верх вручную:</label>
@@ -172,12 +174,23 @@
             <label for="upload-side">Загрузить бок вручную:</label>
             <input type="file" id="upload-side" accept="image/*">
 
-            <label for="upload-bottom">Загрузить низ вручную:</label>
+            <label for="upload-bottom">Загрузить низ/землю вручную:</label>
             <input type="file" id="upload-bottom" accept="image/*">
+
+            <label for="upload-stone">Загрузить камень вручную:</label>
+            <input type="file" id="upload-stone" accept="image/*">
+
+            <label for="upload-glowstone">Загрузить светящийся камень вручную:</label>
+            <input type="file" id="upload-glowstone" accept="image/*">
+
+            <label for="upload-water">Загрузить воду вручную:</label>
+            <input type="file" id="upload-water" accept="image/*">
         </div>
     </div>
 
-    <script>
+    <script type="module">
+        import * as THREE from 'three';
+
         // --- Генерация пиксельных текстур по умолчанию (HTML5 Canvas) ---
         function createPixelTexture(type) {
             const canvas = document.createElement('canvas');
@@ -215,6 +228,72 @@
             return texture;
         }
 
+        // --- Текстура камня (Stone) для стен каньона ---
+        function createStoneTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            for(let y = 0; y < 16; y++) {
+                for(let x = 0; x < 16; x++) {
+                    const noise = Math.random() * 24 - 12;
+                    const gray = 115 + noise; 
+                    ctx.fillStyle = `rgb(${gray},${gray},${gray})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            return texture;
+        }
+
+        // --- Текстура светящегося камня (Glowstone) ---
+        function createGlowstoneTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            for(let y = 0; y < 16; y++) {
+                for(let x = 0; x < 16; x++) {
+                    let r = 245, g = 150, b = 40; 
+                    if ((x+y)%3 === 0 || (x*y)%4 === 0) {
+                        r = 255; g = 210; b = 100; 
+                    }
+                    if (x >= 4 && x <= 11 && y >= 4 && y <= 11 && Math.random() > 0.4) {
+                        r = 255; g = 255; b = 180; 
+                    }
+                    ctx.fillStyle = `rgb(${r},${g},${b})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            return texture;
+        }
+
+        // --- Текстура воды (Water) по умолчанию ---
+        function createWaterTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            for(let y = 0; y < 16; y++) {
+                for(let x = 0; x < 16; x++) {
+                    const noise = Math.random() * 16 - 8;
+                    const r = 40 + noise;
+                    const g = 90 + noise;
+                    const b = 205 + noise;
+                    ctx.fillStyle = `rgb(${Math.floor(r)},${Math.floor(g)},${Math.floor(b)})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            return texture;
+        }
+
         // --- Текстуры для плоских Солнца и Луны ---
         function createSunTexture() {
             const canvas = document.createElement('canvas');
@@ -222,9 +301,9 @@
             const ctx = canvas.getContext('2d');
             for(let y = 0; y < 16; y++) {
                 for(let x = 0; x < 16; x++) {
-                    let r = 255, g = 190, b = 60; // Оранжевая кайма
+                    let r = 255, g = 190, b = 60; 
                     if (x >= 2 && x <= 13 && y >= 2 && y <= 13) {
-                        r = 255; g = 245; b = 195; // Яркое желтое ядро
+                        r = 255; g = 245; b = 195; 
                     }
                     ctx.fillStyle = `rgb(${r},${g},${b})`;
                     ctx.fillRect(x, y, 1, 1);
@@ -240,16 +319,39 @@
             const canvas = document.createElement('canvas');
             canvas.width = 16; canvas.height = 16;
             const ctx = canvas.getContext('2d');
-            for(let y = 0; y < 16; y++) {
-                for(let x = 0; x < 16; x++) {
-                    let r = 220, g = 220, b = 220; // Светло-серый
-                    if ((x+y)%5 === 0 || (x*y)%7 === 0) {
-                        r = 170; g = 170; b = 170; // Серые кратеры
-                    }
-                    ctx.fillStyle = `rgb(${r},${g},${b})`;
+            
+            const moonPixels = [
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,2,2,2,1,1,1,1,2,2,1,1,1,1,1],
+                [1,2,3,3,2,1,1,1,2,3,3,2,1,1,1,1],
+                [1,2,3,2,2,1,1,1,2,3,2,2,1,1,1,1],
+                [1,2,2,2,1,1,1,1,1,2,2,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,2,2,2,1,1,1,1,1,1,1,2,2,1],
+                [1,1,2,3,3,2,1,1,1,1,1,1,2,3,3,2],
+                [1,1,2,3,2,2,1,1,1,1,1,1,2,3,2,2],
+                [1,1,1,2,2,1,1,1,1,1,1,1,1,2,2,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,2,2,2,2,1,1,1,1,1,1,1],
+                [1,1,1,1,2,3,3,3,3,2,1,1,1,1,1,1],
+                [1,1,1,1,2,3,2,2,3,2,1,1,1,1,1,1],
+                [1,1,1,1,1,2,2,2,2,1,1,1,1,1,1,1]
+            ];
+
+            const colors = {
+                1: '#eef5fc', 
+                2: '#b0c3d9', 
+                3: '#7f92a8'  
+            };
+
+            for (let y = 0; y < 16; y++) {
+                for (let x = 0; x < 16; x++) {
+                    ctx.fillStyle = colors[moonPixels[y][x]];
                     ctx.fillRect(x, y, 1, 1);
                 }
             }
+
             const texture = new THREE.CanvasTexture(canvas);
             texture.magFilter = THREE.NearestFilter;
             texture.minFilter = THREE.NearestFilter;
@@ -259,26 +361,29 @@
         // --- Настройка сцены и рендерера ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x6ca1ff); 
-        scene.fog = new THREE.Fog(0x6ca1ff, 200, 400); 
+        
+        scene.fog = new THREE.Fog(0x6ca1ff, 110, 210); 
 
         const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 1000);
         
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         
-        // Включение поддержки теней высокой четкости
+        // Настройка жестких пиксельных теней как в Майнкрафте
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.type = THREE.BasicShadowMap; 
         document.body.appendChild(renderer.domElement);
 
         const dummy = new THREE.Object3D();
 
-        // --- Освещение ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.1); 
+        // --- Освещение (Minecraft Shader Style - Оригинальное) ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.45); 
         scene.add(ambientLight);
 
-        // Солнце
-        const sunLight = new THREE.DirectionalLight(0xfffdf2, 1.4);
+        const hemiLight = new THREE.HemisphereLight(0xa0c8ff, 0x444444, 0.4);
+        scene.add(hemiLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.15); 
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.width = 2048;
         sunLight.shadow.mapSize.height = 2048;
@@ -287,39 +392,37 @@
         sunLight.shadow.camera.top = 40;
         sunLight.shadow.camera.bottom = -40;
         sunLight.shadow.camera.near = 10;
-        sunLight.shadow.camera.far = 250;
-        sunLight.shadow.bias = -0.0003; 
+        sunLight.shadow.camera.far = 1000; 
+        sunLight.shadow.bias = -0.0005; 
         scene.add(sunLight);
         scene.add(sunLight.target); 
 
-        // Луна
-        const moonLight = new THREE.DirectionalLight(0xaaccff, 0.35);
-        moonLight.castShadow = true;
-        moonLight.shadow.mapSize.width = 1024;
-        moonLight.shadow.mapSize.height = 1024;
-        moonLight.shadow.camera.left = -40;
-        moonLight.shadow.camera.right = 40;
-        moonLight.shadow.camera.top = 40;
-        moonLight.shadow.camera.bottom = -40;
-        moonLight.shadow.camera.near = 10;
-        moonLight.shadow.camera.far = 250;
+        const moonLight = new THREE.DirectionalLight(0xaaccff, 0.0); // Всегда полдень
         scene.add(moonLight);
         scene.add(moonLight.target);
 
+        // Динамический пул PointLight для светящихся блоков (максимум 5 штук возле камеры)
+        const glowLights = [];
+        const maxGlowLights = 5;
+        for (let i = 0; i < maxGlowLights; i++) {
+            const light = new THREE.PointLight(0xffaa44, 0.0, 15);
+            light.decay = 1.0; 
+            scene.add(light);
+            glowLights.push(light);
+        }
+
         // --- Создание ПЛОСКИХ небесных тел (PlaneGeometry) ---
-        // Солнце
         const sunGeo = new THREE.PlaneGeometry(16, 16);
-        const sunMat = new THREE.MeshBasicMaterial({map: createSunTexture(), transparent: true, fog: false, side: THREE.DoubleSide});
+        const sunMat = new THREE.MeshBasicMaterial({map: createSunTexture(), transparent: false, fog: false, side: THREE.DoubleSide});
         const sunMesh = new THREE.Mesh(sunGeo, sunMat);
         scene.add(sunMesh);
 
-        // Луна
         const moonGeo = new THREE.PlaneGeometry(12, 12);
-        const moonMat = new THREE.MeshBasicMaterial({map: createMoonTexture(), transparent: true, fog: false, side: THREE.DoubleSide});
+        const moonMat = new THREE.MeshBasicMaterial({map: createMoonTexture(), transparent: false, fog: false, side: THREE.DoubleSide});
         const moonMesh = new THREE.Mesh(moonGeo, moonMat);
         scene.add(moonMesh);
 
-        // --- Ночные звезды ---
+        // --- Ночные звезды (скрыты во время дня) ---
         const starGeo = new THREE.BufferGeometry();
         const starCount = 600;
         const starPositions = new Float32Array(starCount * 3);
@@ -362,30 +465,45 @@
         const maxCloudInstances = 6000; 
         
         const cloudGeometry = new THREE.BoxGeometry(cloudScale, 1.5, cloudScale);
-        const cloudMaterial = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            transparent: false, 
-            fog: true,          
-            depthWrite: true
+
+        const cloudDepthMaterial = new THREE.MeshBasicMaterial({
+            colorWrite: false,
+            depthWrite: true,
+            transparent: false
         });
 
-        const cloudMesh = new THREE.InstancedMesh(cloudGeometry, cloudMaterial, maxCloudInstances);
-        scene.add(cloudMesh);
+        const cloudColorMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.5,      
+            fog: true,         
+            depthWrite: false,
+            depthFunc: THREE.LessEqual 
+        });
+
+        const cloudMeshDepth = new THREE.InstancedMesh(cloudGeometry, cloudDepthMaterial, maxCloudInstances);
+        const cloudMeshColor = new THREE.InstancedMesh(cloudGeometry, cloudColorMaterial, maxCloudInstances);
+        
+        scene.add(cloudMeshDepth);
+        scene.add(cloudMeshColor);
 
         let cloudOffsetX = 0;
-        let cloudOffsetZ = 0;
 
-        // --- Переменные паркура ---
+        // --- ПЕРЕМЕННЫЕ ПАРКУРА И РЕЛЬЕФА КАНЬОНА ---
         const parkourGroup = new THREE.Group();
         scene.add(parkourGroup);
 
-        let blocksData = [];  
-        let blockMeshes = [];  
-        const maxActiveBlocks = 35; 
+        let blocksData = [];       // Координаты ВСЕХ просчитанных платформ (активных + будущих)
+        let blockMeshes = [];      // Меши активных прыжковых блоков
+        let glowstoneMeshes = [];  // Меши активных светящихся блоков
+        let canyonData = [];       // Блоки каньона для активных платформ
+        
+        const maxActiveBlocks = 45; 
+        const blocksBehind = 10;    
+        const futurePathSize = 25;  // Буфер предсказания пути (всего 80 точек)
         let blocksPassed = 0;       
 
-        let dayTime = 600; 
-        let timeSpeedScale = 1.0; 
+        let dayTime = 600; // 600 = Полдень (12:00)
 
         // Физика прыжка
         let jumpProgress = 0; 
@@ -393,7 +511,7 @@
         let maxJumpHeight = 1.25;   
         const rotationSmoothSpeed = 7.0; 
 
-        // Инициализируем материалы (по умолчанию процедурные текстуры)
+        // Инициализируем материалы
         const materials = [
             new THREE.MeshStandardMaterial({map: createPixelTexture('side'), roughness: 0.9, metalness: 0.0}), 
             new THREE.MeshStandardMaterial({map: createPixelTexture('side'), roughness: 0.9, metalness: 0.0}), 
@@ -404,35 +522,302 @@
         ];
         const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
 
-        // --- Автоматическая загрузка локальных текстур из папки textures/ ---
+        const dirtMaterial = materials[3]; 
+
+        const stoneMaterial = new THREE.MeshStandardMaterial({
+            map: createStoneTexture(),
+            roughness: 0.9,
+            metalness: 0.0
+        });
+
+        const glowstoneMaterial = new THREE.MeshBasicMaterial({
+            map: createGlowstoneTexture()
+        });
+
+        const waterColorMaterial = new THREE.MeshStandardMaterial({
+            map: createWaterTexture(),
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.65,
+            roughness: 0.1, 
+            metalness: 0.1,
+            fog: true,
+            depthWrite: false,
+            depthFunc: THREE.LessEqual 
+        });
+
+        const waterDepthMaterial = new THREE.MeshBasicMaterial({
+            colorWrite: false,
+            depthWrite: true,
+            transparent: false
+        });
+
+        // --- РАЗРАБОТКА VERTEX AMBIENT OCCLUSION (SMOOTH LIGHTING) КАК В MINECRAFT ---
+        // Извлекаем нормали и локальные смещения вершин из стандартной BoxGeometry
+        const boxGeomForAO = new THREE.BoxGeometry(1, 1, 1);
+        const aoPosAttr = boxGeomForAO.getAttribute('position');
+        const aoNormAttr = boxGeomForAO.getAttribute('normal');
+        const vertexOffsets = [];
+        const faceNormals = [];
+
+        for (let i = 0; i < 24; i++) {
+            vertexOffsets.push(new THREE.Vector3(aoPosAttr.getX(i), aoPosAttr.getY(i), aoPosAttr.getZ(i)));
+            faceNormals.push(new THREE.Vector3(aoNormAttr.getX(i), aoNormAttr.getY(i), aoNormAttr.getZ(i)));
+        }
+
+        // Хранилище карты занятых вокселей для расчетов AO на CPU
+        const solidBlocks = new Set();
+
+        // Быстрое кодирование 3D координат в одно число без создания строк (0% нагрузки на сборщик мусора)
+        function getCoordKey(x, y, z) {
+            return (x + 100000) * 100000000 + (z + 100000) * 1000 + (y + 100);
+        }
+
+        // Функция вычисления Ambient Occlusion для конкретной вершины блока на основе 3 соседних вокселей
+        function getAOAtVertex(x, y, z, faceNormal, vertexOffset) {
+            let side1X = x, side1Y = y, side1Z = z;
+            let side2X = x, side2Y = y, side2Z = z;
+            let cornerX = x, cornerY = y, cornerZ = z;
+            
+            // Смещаемся на один слой в направлении нормали плоскости куба
+            side1X += faceNormal.x; side1Y += faceNormal.y; side1Z += faceNormal.z;
+            side2X += faceNormal.x; side2Y += faceNormal.y; side2Z += faceNormal.z;
+            cornerX += faceNormal.x; cornerY += faceNormal.y; cornerZ += faceNormal.z;
+            
+            // Находим две перпендикулярные оси для поиска угловых соседей
+            if (faceNormal.x !== 0) {
+                side1Y += Math.sign(vertexOffset.y);
+                side2Z += Math.sign(vertexOffset.z);
+                cornerY += Math.sign(vertexOffset.y);
+                cornerZ += Math.sign(vertexOffset.z);
+            } else if (faceNormal.y !== 0) {
+                side1X += Math.sign(vertexOffset.x);
+                side2Z += Math.sign(vertexOffset.z);
+                cornerX += Math.sign(vertexOffset.x);
+                cornerZ += Math.sign(vertexOffset.z);
+            } else {
+                side1X += Math.sign(vertexOffset.x);
+                side2Y += Math.sign(vertexOffset.y);
+                cornerX += Math.sign(vertexOffset.x);
+                cornerY += Math.sign(vertexOffset.y);
+            }
+            
+            const s1 = solidBlocks.has(getCoordKey(side1X, side1Y, side1Z));
+            const s2 = solidBlocks.has(getCoordKey(side2X, side2Y, side2Z));
+            const c = solidBlocks.has(getCoordKey(cornerX, cornerY, cornerZ));
+            
+            // Настройка мягкого затемнения во внутренних углах блоков
+            if (s1 && s2) {
+                return 0.55; // Мягкая темная тень (вместо жесткой 0.35)
+            }
+            const solidCount = (s1 ? 1 : 0) + (s2 ? 1 : 0) + (c ? 1 : 0);
+            if (solidCount === 3) return 0.55;
+            if (solidCount === 2) return 0.70; // (вместо 0.55)
+            if (solidCount === 1) return 0.85; // (вместо 0.78)
+            return 1.0; // Полная яркость
+        }
+
+        // Модификация стандартных шейдеров Three.js для поддержки интерполяции Vertex AO
+        function patchMaterialWithAO(material) {
+            material.onBeforeCompile = function (shader) {
+                shader.vertexShader = shader.vertexShader.replace(
+                    '#include <common>',
+                    `#include <common>
+                     attribute float vertexIndex;
+                     attribute vec4 aAO0;
+                     attribute vec4 aAO1;
+                     attribute vec4 aAO2;
+                     attribute vec4 aAO3;
+                     attribute vec4 aAO4;
+                     attribute vec4 aAO5;
+                     varying float vAO;`
+                );
+                shader.vertexShader = shader.vertexShader.replace(
+                    '#include <begin_vertex>',
+                    `#include <begin_vertex>
+                     float ao = 1.0;
+                     int idx = int(vertexIndex);
+                     if (idx < 4) {
+                         if (idx == 0) ao = aAO0.x;
+                         else if (idx == 1) ao = aAO0.y;
+                         else if (idx == 2) ao = aAO0.z;
+                         else ao = aAO0.w;
+                     } else if (idx < 8) {
+                         if (idx == 4) ao = aAO1.x;
+                         else if (idx == 5) ao = aAO1.y;
+                         else if (idx == 6) ao = aAO1.z;
+                         else ao = aAO1.w;
+                     } else if (idx < 12) {
+                         if (idx == 8) ao = aAO2.x;
+                         else if (idx == 9) ao = aAO2.y;
+                         else if (idx == 10) ao = aAO2.z;
+                         else ao = aAO2.w;
+                     } else if (idx < 16) {
+                         if (idx == 12) ao = aAO3.x;
+                         else if (idx == 13) ao = aAO3.y;
+                         else if (idx == 14) ao = aAO3.z;
+                         else ao = aAO3.w;
+                     } else if (idx < 20) {
+                         if (idx == 16) ao = aAO4.x;
+                         else if (idx == 17) ao = aAO4.y;
+                         else if (idx == 18) ao = aAO4.z;
+                         else ao = aAO4.w;
+                     } else {
+                         if (idx == 20) ao = aAO5.x;
+                         else if (idx == 21) ao = aAO5.y;
+                         else if (idx == 22) ao = aAO5.z;
+                         else ao = aAO5.w;
+                     }
+                     vAO = ao;`
+                );
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <common>',
+                    `#include <common>
+                     varying float vAO;`
+                );
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    'vec4 diffuseColor = vec4( diffuse, opacity );',
+                    `vec4 diffuseColor = vec4( diffuse * vAO, opacity );`
+                );
+            };
+        }
+
+        // Создаем отдельные копии материалов для кубиков Каньона
+        const canyonGrassMaterials = materials.map(m => m.clone());
+        const canyonDirtMaterial = dirtMaterial.clone();
+        const canyonStoneMaterial = stoneMaterial.clone();
+
+        canyonGrassMaterials.forEach(m => patchMaterialWithAO(m));
+        patchMaterialWithAO(canyonDirtMaterial);
+        patchMaterialWithAO(canyonStoneMaterial);
+
+        // Индексируем вершины в геометрии блоков от 0 до 23
+        const vertexIndexArr = new Float32Array(24);
+        for (let i = 0; i < 24; i++) {
+            vertexIndexArr[i] = i;
+        }
+        blockGeometry.setAttribute('vertexIndex', new THREE.BufferAttribute(vertexIndexArr, 1));
+
+        // Клонируем геометрию для каждого InstancedMesh, чтобы хранить уникальные инстанс-атрибуты AO
+        const grassGeometry = blockGeometry.clone();
+        const dirtGeometry = blockGeometry.clone();
+        const stoneGeometry = blockGeometry.clone();
+
+        // --- Меши для скал и реки Каньона (InstancedMesh) ---
+        const canyonGrassMesh = new THREE.InstancedMesh(grassGeometry, canyonGrassMaterials, 5000);
+        const canyonDirtMesh = new THREE.InstancedMesh(dirtGeometry, canyonDirtMaterial, 10000);
+        const canyonStoneMesh = new THREE.InstancedMesh(stoneGeometry, canyonStoneMaterial, 35000);
+        const canyonWaterMeshDepth = new THREE.InstancedMesh(blockGeometry, waterDepthMaterial, 5000);
+        const canyonWaterMeshColor = new THREE.InstancedMesh(blockGeometry, waterColorMaterial, 5000);
+
+        canyonGrassMesh.castShadow = true;
+        canyonGrassMesh.receiveShadow = true;
+        canyonDirtMesh.castShadow = true;
+        canyonDirtMesh.receiveShadow = true;
+        canyonStoneMesh.castShadow = true;
+        canyonStoneMesh.receiveShadow = true;
+        canyonWaterMeshColor.receiveShadow = true; 
+
+        scene.add(canyonGrassMesh);
+        scene.add(canyonDirtMesh);
+        scene.add(canyonStoneMesh);
+        scene.add(canyonWaterMeshDepth);
+        scene.add(canyonWaterMeshColor);
+
+        // Инициализация пустых массивов под инстанс-атрибуты AO в геометрии
+        function setupAOMesh(geometry, maxCount) {
+            const ao0 = new THREE.InstancedBufferAttribute(new Float32Array(maxCount * 4), 4);
+            const ao1 = new THREE.InstancedBufferAttribute(new Float32Array(maxCount * 4), 4);
+            const ao2 = new THREE.InstancedBufferAttribute(new Float32Array(maxCount * 4), 4);
+            const ao3 = new THREE.InstancedBufferAttribute(new Float32Array(maxCount * 4), 4);
+            const ao4 = new THREE.InstancedBufferAttribute(new Float32Array(maxCount * 4), 4);
+            const ao5 = new THREE.InstancedBufferAttribute(new Float32Array(maxCount * 4), 4);
+            
+            ao0.array.fill(1.0);
+            ao1.array.fill(1.0);
+            ao2.array.fill(1.0);
+            ao3.array.fill(1.0);
+            ao4.array.fill(1.0);
+            ao5.array.fill(1.0);
+            
+            geometry.setAttribute('aAO0', ao0);
+            geometry.setAttribute('aAO1', ao1);
+            geometry.setAttribute('aAO2', ao2);
+            geometry.setAttribute('aAO3', ao3);
+            geometry.setAttribute('aAO4', ao4);
+            geometry.setAttribute('aAO5', ao5);
+        }
+
+        setupAOMesh(grassGeometry, 5000);
+        setupAOMesh(dirtGeometry, 10000);
+        setupAOMesh(stoneGeometry, 35000);
+
+        // Хранилище для абсолютной координатной сетки сгенерированных колонок (предотвращает наложение)
+        const generatedColumns = new Set();
+
+        // --- Единый центр обновления текстур во всем мире ---
         const textureLoader = new THREE.TextureLoader();
 
+        function updateTexture(type, texture) {
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+
+            if (type === 'side') {
+                const sideIndices = [0, 1, 4, 5];
+                sideIndices.forEach(idx => {
+                    materials[idx].map = texture;
+                    materials[idx].color.setHex(0xffffff);
+                    materials[idx].needsUpdate = true;
+
+                    canyonGrassMaterials[idx].map = texture;
+                    canyonGrassMaterials[idx].color.setHex(0xffffff);
+                    canyonGrassMaterials[idx].needsUpdate = true;
+                });
+            } else if (type === 'top') {
+                materials[2].map = texture;
+                materials[2].color.setHex(0xffffff);
+                materials[2].needsUpdate = true;
+
+                canyonGrassMaterials[2].map = texture;
+                canyonGrassMaterials[2].color.setHex(0xffffff);
+                canyonGrassMaterials[2].needsUpdate = true;
+            } else if (type === 'bottom') {
+                materials[3].map = texture;
+                materials[3].color.setHex(0xffffff);
+                materials[3].needsUpdate = true;
+
+                canyonGrassMaterials[3].map = texture;
+                canyonGrassMaterials[3].color.setHex(0xffffff);
+                canyonGrassMaterials[3].needsUpdate = true;
+
+                canyonDirtMaterial.map = texture;
+                canyonDirtMaterial.color.setHex(0xffffff);
+                canyonDirtMaterial.needsUpdate = true;
+            } else if (type === 'stone') {
+                stoneMaterial.map = texture;
+                stoneMaterial.color.setHex(0xffffff);
+                stoneMaterial.needsUpdate = true;
+
+                canyonStoneMaterial.map = texture;
+                canyonStoneMaterial.color.setHex(0xffffff);
+                canyonStoneMaterial.needsUpdate = true;
+            } else if (type === 'glowstone') {
+                glowstoneMaterial.map = texture;
+                glowstoneMaterial.color.setHex(0xffffff);
+                glowstoneMaterial.needsUpdate = true;
+            } else if (type === 'water') {
+                waterColorMaterial.map = texture;
+                waterColorMaterial.color.setHex(0xffffff);
+                waterColorMaterial.needsUpdate = true;
+            }
+        }
+
+        // --- Автоматическая загрузка локальных текстур из папки assets/ ---
         function loadLocalTexture(path, materialType) {
             textureLoader.load(
                 path,
                 (texture) => {
-                    texture.magFilter = THREE.NearestFilter;
-                    texture.minFilter = THREE.NearestFilter;
-
-                    if (materialType === 'side') {
-                        materials[0].map = texture; 
-                        materials[1].map = texture; 
-                        materials[4].map = texture; 
-                        materials[5].map = texture; 
-                        
-                        materials[0].color.setHex(0xffffff);
-                        materials[1].color.setHex(0xffffff);
-                        materials[4].color.setHex(0xffffff);
-                        materials[5].color.setHex(0xffffff);
-                    } else if (materialType === 'top') {
-                        materials[2].map = texture; 
-                        materials[2].color.setHex(0xffffff);
-                    } else if (materialType === 'bottom') {
-                        materials[3].map = texture; 
-                        materials[3].color.setHex(0xffffff);
-                    }
-                    materials.forEach(m => m.needsUpdate = true);
-                    console.log(`Текстура успешно загружена: ${path}`);
+                    updateTexture(materialType, texture);
                 },
                 undefined,
                 (err) => {
@@ -441,106 +826,395 @@
             );
         }
 
-        // Запуск автозагрузки
-        loadLocalTexture('textures/top.png', 'top');
-        loadLocalTexture('textures/side.png', 'side');
-        loadLocalTexture('textures/bottom.png', 'bottom');
+        loadLocalTexture('assets/top.png', 'top');
+        loadLocalTexture('assets/side.png', 'side');
+        loadLocalTexture('assets/bottom.png', 'bottom');
+        loadLocalTexture('assets/stone.png', 'stone');
+        loadLocalTexture('assets/glowstone.png', 'glowstone');
+        loadLocalTexture('assets/water.png', 'water');
 
+        let generatorYaw = 0; 
+
+        // --- МЕГА-ПЛАВНАЯ ГЕНЕРАЦИЯ ПО СТРОГОЙ 3D-СЕТКЕ ---
         function calculateNextPosition(prevPos) {
-            const rand = Math.random();
+            const randY = Math.random();
             let dy = 0;
-            if (rand < 0.2) dy = -1;
-            else if (rand < 0.4) dy = 1;
 
-            let minD = 3.2; 
-            let maxD = 4.8; 
+            // Стабилизация высоты паркура около уровня Y = 0 (предотвращает уход под воду и подъем выше облаков)
+            if (prevPos.y > 2) {
+                if (randY < 0.45) dy = -1;
+            } else if (prevPos.y < -2) {
+                if (randY < 0.45) dy = 1;
+            } else {
+                if (randY < 0.25) dy = -1;
+                else if (randY < 0.5) dy = 1;
+            }
 
-            if (dy === 1) maxD = 3.8; 
-            else if (dy === -1) maxD = 5.2; 
+            const maxTurn = 0.35; 
+            generatorYaw += (Math.random() - 0.5) * maxTurn * 2;
 
-            const D = minD + Math.random() * (maxD - minD);
-            const angle = (Math.random() - 0.5) * 0.7; 
+            const forwardStep = 4; 
 
-            const dx = D * Math.cos(angle);
-            const dz = D * Math.sin(angle);
+            const cosY = Math.cos(generatorYaw);
+            const sinY = Math.sin(generatorYaw);
 
-            prevPos.x += dx;
-            prevPos.y += dy; 
-            prevPos.z += dz;
+            const dx_global = forwardStep * cosY;
+            const dz_global = forwardStep * sinY;
+
+            prevPos.x += dx_global;
+            prevPos.y += dy;
+            prevPos.z += dz_global;
+
+            prevPos.x = Math.round(prevPos.x);
+            prevPos.y = Math.round(prevPos.y);
+            prevPos.z = Math.round(prevPos.z);
         }
 
-        function addNewBlock(pos) {
+        // --- СОЗДАНИЕ 3D-МЕШЕЙ И КАНЬОНА НА ОСНОВЕ ПРЕДВАРИТЕЛЬНОГО ПУТИ ---
+        function createCanyonAndMeshesForIndex(index) {
+            const gridPos = blocksData[index];
+
+            // 1. Создаем обычный блок для прыжка (сверху)
             const mesh = new THREE.Mesh(blockGeometry, materials);
-            mesh.position.copy(pos);
+            mesh.position.copy(gridPos);
             mesh.castShadow = true;     
             mesh.receiveShadow = true;  
             parkourGroup.add(mesh);
-            
             blockMeshes.push(mesh);
-            blocksData.push(pos.clone());
+
+            // 2. Создаем светящийся блок строго ПОД ним (Y - 1)
+            const glowPos = gridPos.clone();
+            glowPos.y -= 1; 
+            const glowMesh = new THREE.Mesh(blockGeometry, glowstoneMaterial);
+            glowMesh.position.copy(glowPos);
+            glowMesh.castShadow = true;
+            glowMesh.receiveShadow = true;
+            parkourGroup.add(glowMesh);
+            glowstoneMeshes.push(glowMesh); 
+
+            // Порядковый номер шага в каньоне
+            const blockId = canyonData.length;
+
+            // --- ГЕНЕРАЦИЯ КАНЬОНА НА ОСНОВЕ АБСОЛЮТНОЙ КООРДИНАТНОЙ СЕТКИ И ДИСТАНЦИЙ ---
+            const localCanyon = { grass: [], dirt: [], stone: [], water: [], coords: [] };
+
+            const radius = 8;
+            const startX = gridPos.x - radius;
+            const endX = gridPos.x + radius;
+            const startZ = gridPos.z - radius;
+            const endZ = gridPos.z + radius;
+
+            for (let cx = startX; cx <= endX; cx++) {
+                for (let cz = startZ; cz <= endZ; cz++) {
+                    const coordKey = cx + ',' + cz;
+                    if (generatedColumns.has(coordKey)) continue;
+
+                    let minDistSq = 999999;
+                    for (let i = 0; i < blocksData.length; i++) {
+                        const dx = cx - blocksData[i].x;
+                        const dz = cz - blocksData[i].z;
+                        const dSq = dx * dx + dz * dz;
+                        if (dSq < minDistSq) minDistSq = dSq;
+                    }
+                    const minDist = Math.sqrt(minDistSq);
+
+                    generatedColumns.add(coordKey);
+                    localCanyon.coords.push(coordKey);
+
+                    if (minDist < 3.5) {
+                        const waterY = gridPos.y - 6;
+                        localCanyon.water.push(new THREE.Vector3(cx, waterY, cz));
+                    } else {
+                        const noise = Math.sin(cx * 0.12) * Math.cos(cz * 0.12) * 3 + Math.sin(cx * 0.04) * 4;
+                        const heightByDist = (minDist - 3.5) * 2.8;
+                        const topY = Math.round(gridPos.y - 1 + heightByDist + noise);
+                        const clampedTopY = Math.max(gridPos.y - 5, Math.min(gridPos.y + 12, topY));
+                        const bottomY = gridPos.y - 6;
+
+                        for (let y = bottomY; y <= clampedTopY; y++) {
+                            const p = new THREE.Vector3(cx, y, cz);
+                            if (y === clampedTopY) {
+                                localCanyon.grass.push(p); 
+                            } else if (y >= clampedTopY - 2) {
+                                localCanyon.dirt.push(p);  
+                            } else {
+                                localCanyon.stone.push(p); 
+                            }
+                        }
+                    }
+                }
+            }
+
+            canyonData.push(localCanyon);
         }
 
+        // --- ГЕНЕРАЦИЯ ОДИНОЧНОГО НОВОГО БЛОКА В РЕАЛЬНОМ ВРЕМЕНИ ---
+        function addNewBlock(pos) {
+            createCanyonAndMeshesForIndex(blocksBehind + maxActiveBlocks - 1);
+        }
+
+        // --- Отрисовка скал и реки каньона через InstancedMesh ---
+        // КЛЮЧЕВАЯ ОПТИМИЗАЦИЯ: Эта тяжелая функция теперь вызывается только при шаге игрока вперед, а не каждый кадр!
+        function updateCanyonMeshes() {
+            // Пересобираем сетку занятых вокселей на CPU
+            solidBlocks.clear();
+            for (let i = 0; i < canyonData.length; i++) {
+                const data = canyonData[i];
+                for (let j = 0; j < data.grass.length; j++) {
+                    const p = data.grass[j];
+                    solidBlocks.add(getCoordKey(p.x, p.y, p.z));
+                }
+                for (let j = 0; j < data.dirt.length; j++) {
+                    const p = data.dirt[j];
+                    solidBlocks.add(getCoordKey(p.x, p.y, p.z));
+                }
+                for (let j = 0; j < data.stone.length; j++) {
+                    const p = data.stone[j];
+                    solidBlocks.add(getCoordKey(p.x, p.y, p.z));
+                }
+            }
+            for (let i = 0; i < blocksData.length; i++) {
+                const p = blocksData[i];
+                solidBlocks.add(getCoordKey(p.x, p.y, p.z));
+                solidBlocks.add(getCoordKey(p.x, p.y - 1, p.z)); // Glowstone под платформой
+            }
+
+            let grassId = 0;
+            let dirtId = 0;
+            let stoneId = 0;
+            let waterId = 0;
+
+            const tempMatrix = new THREE.Matrix4();
+            const tempPosition = new THREE.Vector3();
+
+            // Извлекаем массивы инстанс-атрибутов AO для модификации
+            const grassAO0 = grassGeometry.getAttribute('aAO0').array;
+            const grassAO1 = grassGeometry.getAttribute('aAO1').array;
+            const grassAO2 = grassGeometry.getAttribute('aAO2').array;
+            const grassAO3 = grassGeometry.getAttribute('aAO3').array;
+            const grassAO4 = grassGeometry.getAttribute('aAO4').array;
+            const grassAO5 = grassGeometry.getAttribute('aAO5').array;
+
+            const dirtAO0 = dirtGeometry.getAttribute('aAO0').array;
+            const dirtAO1 = dirtGeometry.getAttribute('aAO1').array;
+            const dirtAO2 = dirtGeometry.getAttribute('aAO2').array;
+            const dirtAO3 = dirtGeometry.getAttribute('aAO3').array;
+            const dirtAO4 = dirtGeometry.getAttribute('aAO4').array;
+            const dirtAO5 = dirtGeometry.getAttribute('aAO5').array;
+
+            const stoneAO0 = stoneGeometry.getAttribute('aAO0').array;
+            const stoneAO1 = stoneGeometry.getAttribute('aAO1').array;
+            const stoneAO2 = stoneGeometry.getAttribute('aAO2').array;
+            const stoneAO3 = stoneGeometry.getAttribute('aAO3').array;
+            const stoneAO4 = stoneGeometry.getAttribute('aAO4').array;
+            const stoneAO5 = stoneGeometry.getAttribute('aAO5').array;
+
+            // Вспомогательная функция для быстрого копирования кэшированного AO
+            function applyCachedAO(aoValues, ao0, ao1, ao2, ao3, ao4, ao5, instanceId) {
+                const offset = instanceId * 4;
+                for (let i = 0; i < 24; i++) {
+                    const aoVal = aoValues[i];
+                    if (i < 4) ao0[offset + (i % 4)] = aoVal;
+                    else if (i < 8) ao1[offset + (i % 4)] = aoVal;
+                    else if (i < 12) ao2[offset + (i % 4)] = aoVal;
+                    else if (i < 16) ao3[offset + (i % 4)] = aoVal;
+                    else if (i < 20) ao4[offset + (i % 4)] = aoVal;
+                    else ao5[offset + (i % 4)] = aoVal;
+                }
+            }
+
+            for (let i = 0; i < canyonData.length; i++) {
+                const data = canyonData[i];
+                
+                // РАСЧЕТ И КЭШИРОВАНИЕ AO (Делается ОДИН раз для новой колонки блоков, убирая микрофризы)
+                if (!data.grassAO) {
+                    data.grassAO = [];
+                    for (let j = 0; j < data.grass.length; j++) {
+                        const p = data.grass[j];
+                        const aoValues = new Float32Array(24);
+                        for (let k = 0; k < 24; k++) {
+                            aoValues[k] = getAOAtVertex(p.x, p.y, p.z, faceNormals[k], vertexOffsets[k]);
+                        }
+                        data.grassAO.push(aoValues);
+                    }
+                }
+                if (!data.dirtAO) {
+                    data.dirtAO = [];
+                    for (let j = 0; j < data.dirt.length; j++) {
+                        const p = data.dirt[j];
+                        const aoValues = new Float32Array(24);
+                        for (let k = 0; k < 24; k++) {
+                            aoValues[k] = getAOAtVertex(p.x, p.y, p.z, faceNormals[k], vertexOffsets[k]);
+                        }
+                        data.dirtAO.push(aoValues);
+                    }
+                }
+                if (!data.stoneAO) {
+                    data.stoneAO = [];
+                    for (let j = 0; j < data.stone.length; j++) {
+                        const p = data.stone[j];
+                        const aoValues = new Float32Array(24);
+                        for (let k = 0; k < 24; k++) {
+                            aoValues[k] = getAOAtVertex(p.x, p.y, p.z, faceNormals[k], vertexOffsets[k]);
+                        }
+                        data.stoneAO.push(aoValues);
+                    }
+                }
+
+                // Трава
+                for (let j = 0; j < data.grass.length; j++) {
+                    if (grassId < 5000) {
+                        const p = data.grass[j];
+                        tempMatrix.makeTranslation(p.x, p.y, p.z);
+                        canyonGrassMesh.setMatrixAt(grassId, tempMatrix);
+                        applyCachedAO(data.grassAO[j], grassAO0, grassAO1, grassAO2, grassAO3, grassAO4, grassAO5, grassId);
+                        grassId++;
+                    }
+                }
+
+                // Земля
+                for (let j = 0; j < data.dirt.length; j++) {
+                    if (dirtId < 10000) {
+                        const p = data.dirt[j];
+                        tempMatrix.makeTranslation(p.x, p.y, p.z);
+                        canyonDirtMesh.setMatrixAt(dirtId, tempMatrix);
+                        applyCachedAO(data.dirtAO[j], dirtAO0, dirtAO1, dirtAO2, dirtAO3, dirtAO4, dirtAO5, dirtId);
+                        dirtId++;
+                    }
+                }
+
+                // Камень
+                for (let j = 0; j < data.stone.length; j++) {
+                    if (stoneId < 35000) {
+                        const p = data.stone[j];
+                        tempMatrix.makeTranslation(p.x, p.y, p.z);
+                        canyonStoneMesh.setMatrixAt(stoneId, tempMatrix);
+                        applyCachedAO(data.stoneAO[j], stoneAO0, stoneAO1, stoneAO2, stoneAO3, stoneAO4, stoneAO5, stoneId);
+                        stoneId++;
+                    }
+                }
+
+                // Река
+                for (let j = 0; j < data.water.length; j++) {
+                    if (waterId < 5000) {
+                        tempPosition.copy(data.water[j]);
+                        tempMatrix.makeTranslation(tempPosition.x, tempPosition.y, tempPosition.z);
+                        canyonWaterMeshDepth.setMatrixAt(waterId, tempMatrix);
+                        canyonWaterMeshColor.setMatrixAt(waterId, tempMatrix);
+                        waterId++;
+                    }
+                }
+            }
+
+            canyonGrassMesh.count = grassId;
+            canyonGrassMesh.instanceMatrix.needsUpdate = true;
+            grassGeometry.getAttribute('aAO0').needsUpdate = true;
+            grassGeometry.getAttribute('aAO1').needsUpdate = true;
+            grassGeometry.getAttribute('aAO2').needsUpdate = true;
+            grassGeometry.getAttribute('aAO3').needsUpdate = true;
+            grassGeometry.getAttribute('aAO4').needsUpdate = true;
+            grassGeometry.getAttribute('aAO5').needsUpdate = true;
+
+            canyonDirtMesh.count = dirtId;
+            canyonDirtMesh.instanceMatrix.needsUpdate = true;
+            dirtGeometry.getAttribute('aAO0').needsUpdate = true;
+            dirtGeometry.getAttribute('aAO1').needsUpdate = true;
+            dirtGeometry.getAttribute('aAO2').needsUpdate = true;
+            dirtGeometry.getAttribute('aAO3').needsUpdate = true;
+            dirtGeometry.getAttribute('aAO4').needsUpdate = true;
+            dirtGeometry.getAttribute('aAO5').needsUpdate = true;
+
+            canyonStoneMesh.count = stoneId;
+            canyonStoneMesh.instanceMatrix.needsUpdate = true;
+            stoneGeometry.getAttribute('aAO0').needsUpdate = true;
+            stoneGeometry.getAttribute('aAO1').needsUpdate = true;
+            stoneGeometry.getAttribute('aAO2').needsUpdate = true;
+            stoneGeometry.getAttribute('aAO3').needsUpdate = true;
+            stoneGeometry.getAttribute('aAO4').needsUpdate = true;
+            stoneGeometry.getAttribute('aAO5').needsUpdate = true;
+
+            canyonWaterMeshDepth.count = waterId;
+            canyonWaterMeshDepth.instanceMatrix.needsUpdate = true;
+
+            canyonWaterMeshColor.count = waterId;
+            canyonWaterMeshColor.instanceMatrix.needsUpdate = true;
+        }
+
+        // --- ГЕНЕРАЦИЯ НАЧАЛЬНОЙ ТРАССЫ ПАРКУРА ---
         function generateParkour() {
             while(parkourGroup.children.length > 0){
                 parkourGroup.remove(parkourGroup.children[0]);
             }
             blocksData = [];
             blockMeshes = [];
-            blocksPassed = 0;
+            glowstoneMeshes = [];
+            canyonData = [];
+            generatorYaw = 0; 
+
+            // Сброс сеточной карты при перегенерации
+            generatedColumns.clear();
+
             document.getElementById('block-count').innerText = blocksPassed;
 
+            // 1. СНАЧАЛА генерируем 80 точек пути (10 сзади + 45 впереди + 25 будущих)
+            const totalPoints = blocksBehind + maxActiveBlocks + futurePathSize; // 80
             let currentPos = new THREE.Vector3(0, 0, 0);
-            for (let i = 0; i < maxActiveBlocks; i++) {
-                addNewBlock(currentPos);
-                if (i < maxActiveBlocks - 1) {
-                    calculateNextPosition(currentPos);
-                }
+            for (let i = 0; i < totalPoints; i++) {
+                const gridPos = new THREE.Vector3(
+                    Math.round(currentPos.x),
+                    Math.round(currentPos.y),
+                    Math.round(currentPos.z)
+                );
+                blocksData.push(gridPos);
+                calculateNextPosition(currentPos);
+            }
+
+            // 2. Отрисовываем 3D-мир для первых 55 блоков (активные + сзади)
+            const initialRenderCount = blocksBehind + maxActiveBlocks; // 55
+            for (let i = 0; i < initialRenderCount; i++) {
+                createCanyonAndMeshesForIndex(i);
             }
 
             jumpProgress = 0;
+            
+            // Первичный расчет AO для каньона на старте
+            updateCanyonMeshes();
             updateCameraPosition(0);
         }
 
         // --- Логика времени суток и смены атмосферы ---
         function updateDayNightCycle(deltaTime) {
-            dayTime += deltaTime * timeSpeedScale;
-            if (dayTime >= 1200) dayTime = 0;
+            dayTime = 600;
 
-            const angle = (dayTime / 1200) * Math.PI * 2 - Math.PI / 2;
-            const sinAngle = Math.sin(angle);
-            const cosAngle = Math.cos(angle);
-
-            const distance = 160; 
-
-            const sunX = cosAngle * distance;
-            const sunY = sinAngle * distance;
+            // Солнце зафиксировано строго вертикально над игроком
+            const sunX = 0;
+            const sunY = 200; // Оптимальная высота для максимально точных и резких теней
             const sunZ = 0;
 
-            const moonX = -cosAngle * distance;
-            const moonY = -sinAngle * distance;
+            const moonX = 0;
+            const moonY = -200;
             const moonZ = 0;
 
-            // Солнце
-            sunLight.position.set(camera.position.x + sunX, sunY, camera.position.z + sunZ);
-            sunLight.target.position.set(camera.position.x, camera.position.y - 10, camera.position.z);
+            // Направляем лучи строго вниз (угол 90 градусов)
+            sunLight.position.set(camera.position.x + sunX, camera.position.y + sunY, camera.position.z + sunZ);
+            sunLight.target.position.set(camera.position.x, camera.position.y, camera.position.z);
             sunMesh.position.copy(sunLight.position);
 
-            // Луна
-            moonLight.position.set(camera.position.x + moonX, moonY, camera.position.z + moonZ);
-            moonLight.target.position.set(camera.position.x, camera.position.y - 10, camera.position.z);
+            // Луна скрыта под горизонтом
+            moonLight.position.set(camera.position.x + moonX, camera.position.y + moonY, camera.position.z + moonZ);
+            moonLight.target.position.set(camera.position.x, camera.position.y, camera.position.z);
             moonMesh.position.copy(moonLight.position);
 
-            // Поворачиваем плоские Солнце и Луну к камере (билбординг)
             sunMesh.lookAt(camera.position);
             moonMesh.lookAt(camera.position);
 
             starField.position.set(camera.position.x, 0, camera.position.z);
 
-            // Движение облаков
+            // --- БЕСКОНЕЧНЫЙ СДВИГ И ГЕНЕРАЦИЯ ОБЪЕМНЫХ 3D ОБЛАКОВ ---
             cloudOffsetX -= 2.0 * deltaTime; 
             
             const centerGridX = Math.floor((camera.position.x - cloudOffsetX) / cloudScale);
-            const centerGridZ = Math.floor((camera.position.z - cloudOffsetZ) / cloudScale);
+            const centerGridZ = Math.floor(camera.position.z / cloudScale); 
             
             let instanceId = 0;
             const range = 50; 
@@ -559,86 +1233,91 @@
                     if (cloudPattern[pz][px] === 1) {
                         if (instanceId < maxCloudInstances) {
                             const x = gx * cloudScale + cloudOffsetX;
-                            const z = gz * cloudScale + cloudOffsetZ;
+                            const z = gz * cloudScale; 
                             
-                            tempPosition.set(x, 28, z); 
+                            tempPosition.set(x, 70, z); // Подняли облака выше до Y = 70
                             tempMatrix.makeTranslation(tempPosition.x, tempPosition.y, tempPosition.z);
-                            cloudMesh.setMatrixAt(instanceId, tempMatrix);
+                            
+                            cloudMeshDepth.setMatrixAt(instanceId, tempMatrix);
+                            cloudMeshColor.setMatrixAt(instanceId, tempMatrix);
                             instanceId++;
                         }
                     }
                 }
             }
-            cloudMesh.count = instanceId;
-            cloudMesh.instanceMatrix.needsUpdate = true;
+            cloudMeshDepth.count = instanceId;
+            cloudMeshDepth.instanceMatrix.needsUpdate = true;
+            cloudMeshColor.count = instanceId;
+            cloudMeshColor.instanceMatrix.needsUpdate = true;
 
-            // Атмосфера
+            // Настройка оригинальной дневной атмосферы (без приглушения пересветов)
             const skyDay = new THREE.Color(0x6ca1ff);      
-            const skySunset = new THREE.Color(0xde5b21);   
-            const skyNight = new THREE.Color(0x020509);    
 
-            let currentSkyColor = new THREE.Color();
+            scene.background.copy(skyDay);
+            scene.fog.color.copy(skyDay);
 
-            if (sinAngle >= 0) {
-                currentSkyColor.copy(skySunset).lerp(skyDay, sinAngle);
-                
-                sunLight.intensity = 1.4 * sinAngle;
-                moonLight.intensity = 0;
-                
-                sunLight.color.setHex(0xffffff).lerp(new THREE.Color(0xff7722), 1 - sinAngle);
-                starMat.opacity = 0; 
-                cloudMaterial.color.setHex(0xffffff).lerp(new THREE.Color(0xffcca0), 1 - sinAngle);
-                
-                ambientLight.color.setHex(0xa6c8ff).lerp(new THREE.Color(0xff9944), 1 - sinAngle);
-                ambientLight.intensity = 0.4 * sinAngle + 0.1 * (1 - sinAngle);
-            } else {
-                const nightProgress = -sinAngle; 
-                currentSkyColor.copy(skySunset).lerp(skyNight, nightProgress);
-                
-                sunLight.intensity = 0;
-                moonLight.intensity = 0.35 * nightProgress;
-                moonLight.color.setHex(0xa6c3ff);
-                
-                starMat.opacity = nightProgress;
-                cloudMaterial.color.setHex(0xffffff).lerp(new THREE.Color(0x1a1a33), nightProgress);
-                
-                ambientLight.color.setHex(0x0a0f1d);
-                ambientLight.intensity = 0.05 * nightProgress + 0.1 * (1 - nightProgress);
+            sunLight.intensity = 1.15; // Возвращено исходное значение
+            moonLight.intensity = 0;
+            sunLight.color.setHex(0xffffff);
+            starMat.opacity = 0; 
+            cloudColorMaterial.color.setHex(0xffffff);
+            
+            hemiLight.color.setHex(0xa0c8ff);
+            hemiLight.intensity = 0.4; // Возвращено исходное значение
+
+            ambientLight.color.setHex(0xffffff);
+            ambientLight.intensity = 0.45; // Возвращено исходное значение
+
+            // Подсветка под светящимися блоками для красоты
+            for (let i = 0; i < maxGlowLights; i++) {
+                if (i < blocksData.length) {
+                    glowLights[i].position.set(blocksData[i].x, blocksData[i].y - 1, blocksData[i].z);
+                    glowLights[i].intensity = 1.5; 
+                } else {
+                    glowLights[i].intensity = 0;
+                }
             }
 
-            scene.background.copy(currentSkyColor);
-            scene.fog.color.copy(currentSkyColor);
-
-            const totalMinutes = (dayTime / 1200) * 24 * 60;
-            const hours = Math.floor(totalMinutes / 60);
-            const minutes = Math.floor(totalMinutes % 60);
-            
-            let timeString = (hours < 10 ? '0' : '') + hours + ':' + (minutes < 10 ? '0' : '') + minutes;
-            if (hours >= 6 && hours < 8) timeString += " (Рассвет)";
-            else if (hours >= 8 && hours < 17) timeString += " (День)";
-            else if (hours >= 17 && hours < 19) timeString += " (Закат)";
-            else timeString += " (Ночь)";
-
-            document.getElementById('time-display').innerText = timeString;
+            document.getElementById('time-display').innerText = "Полдень (12:00)";
         }
 
-        // --- Перемещение камеры ---
+        // --- Перемещение ---
         function updateCameraPosition(deltaTime) {
             if (blocksData.length < 3) return;
 
-            const startBlock = blocksData[0];
-            const endBlock = blocksData[1];
+            const startBlock = blocksData[blocksBehind];
+            const endBlock = blocksData[blocksBehind + 1];
 
             jumpProgress += deltaTime * speedMultiplier;
 
             if (jumpProgress >= 1) {
                 const oldMesh = blockMeshes.shift();
                 parkourGroup.remove(oldMesh);
+
+                const oldGlowMesh = glowstoneMeshes.shift();
+                parkourGroup.remove(oldGlowMesh);
+
+                // Очищаем рельеф старого блока каньона сзади
+                const oldCanyon = canyonData.shift();
+                if (oldCanyon && oldCanyon.coords) {
+                    for (let i = 0; i < oldCanyon.coords.length; i++) {
+                        generatedColumns.delete(oldCanyon.coords[i]);
+                    }
+                }
+
+                // Сдвигаем общие координаты на 1 шаг вперед
                 blocksData.shift();
 
+                // Добавляем одну новую будущую точку в конец буфера
                 const lastPos = blocksData[blocksData.length - 1].clone();
                 calculateNextPosition(lastPos);
+                blocksData.push(lastPos);
+
+                // Отрисовываем новый активный блок на горизонта
                 addNewBlock(lastPos);
+
+                // ОПТИМИЗАЦИЯ: Пересчитываем рельеф и AO только в момент шага вперед
+                updateCanyonMeshes();
 
                 jumpProgress = 0;
                 blocksPassed++;
@@ -646,7 +1325,7 @@
                 return;
             }
 
-            const eyeHeight = 1.4; 
+            const eyeHeight = 1.42; 
 
             const currentX = THREE.MathUtils.lerp(startBlock.x, endBlock.x, jumpProgress);
             const currentZ = THREE.MathUtils.lerp(startBlock.z, endBlock.z, jumpProgress);
@@ -659,13 +1338,12 @@
 
             camera.position.set(currentX, currentY, currentZ);
 
-            // Направление взгляда по направлению прыжка
             const currentDir = new THREE.Vector3().subVectors(endBlock, startBlock);
             currentDir.y = 0; 
             currentDir.normalize();
 
-            const nextBlock = blocksData[1];
-            const farBlock = blocksData[2];
+            const nextBlock = blocksData[blocksBehind + 1];
+            const farBlock = blocksData[blocksBehind + 2];
             const nextDir = new THREE.Vector3().subVectors(farBlock, nextBlock);
             nextDir.y = 0;
             nextDir.normalize();
@@ -674,6 +1352,8 @@
             blendedDir.normalize();
 
             const lookTarget = camera.position.clone().add(blendedDir);
+
+            lookTarget.y = camera.position.y;
 
             dummy.position.copy(camera.position);
             dummy.lookAt(lookTarget);
@@ -692,29 +1372,8 @@
             const file = event.target.files[0];
             if (file) {
                 const url = URL.createObjectURL(file);
-                new THREE.TextureLoader().load(url, (texture) => {
-                    texture.magFilter = THREE.NearestFilter;
-                    texture.minFilter = THREE.NearestFilter;
-
-                    if (materialType === 'side') {
-                        materials[0].map = texture; 
-                        materials[1].map = texture; 
-                        materials[4].map = texture; 
-                        materials[5].map = texture; 
-                        
-                        materials[0].color.setHex(0xffffff);
-                        materials[1].color.setHex(0xffffff);
-                        materials[4].color.setHex(0xffffff);
-                        materials[5].color.setHex(0xffffff);
-                    } else if (materialType === 'top') {
-                        materials[2].map = texture; 
-                        materials[2].color.setHex(0xffffff);
-                    } else if (materialType === 'bottom') {
-                        materials[3].map = texture; 
-                        materials[3].color.setHex(0xffffff);
-                    }
-
-                    materials.forEach(m => m.needsUpdate = true);
+                textureLoader.load(url, (texture) => {
+                    updateTexture(materialType, texture);
                 });
             }
         }
@@ -722,6 +1381,9 @@
         document.getElementById('upload-top').addEventListener('change', (e) => handleTextureUpload(e, 'top'));
         document.getElementById('upload-side').addEventListener('change', (e) => handleTextureUpload(e, 'side'));
         document.getElementById('upload-bottom').addEventListener('change', (e) => handleTextureUpload(e, 'bottom'));
+        document.getElementById('upload-stone').addEventListener('change', (e) => handleTextureUpload(e, 'stone'));
+        document.getElementById('upload-glowstone').addEventListener('change', (e) => handleTextureUpload(e, 'glowstone'));
+        document.getElementById('upload-water').addEventListener('change', (e) => handleTextureUpload(e, 'water'));
 
         // --- Главный цикл анимации ---
         let lastTime = performance.now();
@@ -737,6 +1399,8 @@
 
             updateDayNightCycle(limitedDelta);
             updateCameraPosition(limitedDelta);
+            
+            // Рендер напрямую без фильтров постобработки
             renderer.render(scene, camera);
         }
 
@@ -746,11 +1410,6 @@
         const speedSlider = document.getElementById('slider-speed');
         speedSlider.addEventListener('input', (e) => {
             speedMultiplier = parseFloat(e.target.value);
-        });
-
-        const timeSpeedSlider = document.getElementById('slider-time-speed');
-        timeSpeedSlider.addEventListener('input', (e) => {
-            timeSpeedScale = parseFloat(e.target.value);
         });
 
         window.addEventListener('resize', () => {
