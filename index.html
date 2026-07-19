@@ -172,49 +172,6 @@
             return texture;
         }
 
-        function createMoonTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 16; canvas.height = 16;
-            const ctx = canvas.getContext('2d');
-            
-            const moonPixels = [
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,2,2,2,1,1,1,1,2,2,1,1,1,1,1],
-                [1,2,3,3,2,1,1,1,2,3,3,2,1,1,1,1],
-                [1,2,3,2,2,1,1,1,2,3,2,2,1,1,1,1],
-                [1,2,2,2,1,1,1,1,1,2,2,1,1,1,1,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,2,2,2,1,1,1,1,1,1,1,2,2,1],
-                [1,1,2,3,3,2,1,1,1,1,1,1,2,3,3,2],
-                [1,1,2,3,2,2,1,1,1,1,1,1,2,3,2,2],
-                [1,1,1,2,2,1,1,1,1,1,1,1,1,2,2,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,1,1,2,2,2,2,1,1,1,1,1,1,1],
-                [1,1,1,1,2,3,3,3,3,2,1,1,1,1,1,1],
-                [1,1,1,1,2,3,2,2,3,2,1,1,1,1,1,1],
-                [1,1,1,1,1,2,2,2,2,1,1,1,1,1,1,1]
-            ];
-
-            const colors = {
-                1: '#eef5fc', 
-                2: '#b0c3d9', 
-                3: '#7f92a8'  
-            };
-
-            for (let y = 0; y < 16; y++) {
-                for (let x = 0; x < 16; x++) {
-                    ctx.fillStyle = colors[moonPixels[y][x]];
-                    ctx.fillRect(x, y, 1, 1);
-                }
-            }
-
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.magFilter = THREE.NearestFilter;
-            texture.minFilter = THREE.NearestFilter;
-            return texture;
-        }
-
         // --- Настройка сцены и рендерера ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x6ca1ff); 
@@ -226,24 +183,24 @@
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         
-        // Настройка жестких пиксельных теней как в Майнкрафте
+        // Включаем мягкие, сглаженные тени (PCFSoftShadowMap)
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.BasicShadowMap; 
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         document.body.appendChild(renderer.domElement);
 
         const dummy = new THREE.Object3D();
 
-        // --- Освещение (Minecraft Shader Style - Оригинальное) ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.45); 
+        // --- Освещение (Тени сделаны бледными и еле заметными за счет сильного фонового света) ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); // Повышено с 0.45 до 0.9
         scene.add(ambientLight);
 
-        const hemiLight = new THREE.HemisphereLight(0xa0c8ff, 0x444444, 0.4);
+        const hemiLight = new THREE.HemisphereLight(0xa0c8ff, 0x444444, 0.5); // Повышено с 0.4 до 0.5
         scene.add(hemiLight);
 
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.15); 
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.35); // Снижено с 1.15 до 0.35, чтобы ослабить тени
         sunLight.castShadow = true;
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.mapSize.width = 1024;  // Небольшое разрешение способствует дополнительному размытию
+        sunLight.shadow.mapSize.height = 1024;
         sunLight.shadow.camera.left = -40;
         sunLight.shadow.camera.right = 40;
         sunLight.shadow.camera.top = 40;
@@ -251,6 +208,7 @@
         sunLight.shadow.camera.near = 10;
         sunLight.shadow.camera.far = 1000; 
         sunLight.shadow.bias = -0.0005; 
+        sunLight.shadow.radius = 4; // Радиус размытия краев тени
         scene.add(sunLight);
         scene.add(sunLight.target); 
 
@@ -273,30 +231,6 @@
         const sunMat = new THREE.MeshBasicMaterial({map: createSunTexture(), transparent: false, fog: false, side: THREE.DoubleSide});
         const sunMesh = new THREE.Mesh(sunGeo, sunMat);
         scene.add(sunMesh);
-
-        const moonGeo = new THREE.PlaneGeometry(12, 12);
-        const moonMat = new THREE.MeshBasicMaterial({map: createMoonTexture(), transparent: false, fog: false, side: THREE.DoubleSide});
-        const moonMesh = new THREE.Mesh(moonGeo, moonMat);
-        scene.add(moonMesh);
-
-        // --- Ночные звезды (скрыты во время дня) ---
-        const starGeo = new THREE.BufferGeometry();
-        const starCount = 600;
-        const starPositions = new Float32Array(starCount * 3);
-        for(let i=0; i<starCount*3; i+=3) {
-            const u = Math.random();
-            const v = Math.random();
-            const theta = u * 2.0 * Math.PI;
-            const phi = Math.acos(2.0 * v - 1.0);
-            const r = 200;
-            starPositions[i] = r * Math.sin(phi) * Math.cos(theta);
-            starPositions[i+1] = Math.abs(r * Math.sin(phi) * Math.sin(theta)); 
-            starPositions[i+2] = r * Math.cos(phi);
-        }
-        starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-        const starMat = new THREE.PointsMaterial({color: 0xffffff, size: 1.2, transparent: true, opacity: 0});
-        const starField = new THREE.Points(starGeo, starMat);
-        scene.add(starField);
 
         // --- Облака по оригинальной сетке Minecraft ---
         const cloudPattern = [
@@ -590,7 +524,7 @@
         const dirtGeometry = blockGeometry.clone();
         const stoneGeometry = blockGeometry.clone();
 
-        // --- Меши для скал и реки Каньона (InstancedMesh с увеличенными лимитами под новый радиус) ---
+        // --- Меши для скал и реки Каньона ---
         const canyonGrassMesh = new THREE.InstancedMesh(grassGeometry, canyonGrassMaterials, 10000);
         const canyonDirtMesh = new THREE.InstancedMesh(dirtGeometry, canyonDirtMaterial, 20000);
         const canyonStoneMesh = new THREE.InstancedMesh(stoneGeometry, canyonStoneMaterial, 60000);
@@ -825,13 +759,10 @@
                     } else {
                         const noise = Math.sin(cx * 0.12) * Math.cos(cz * 0.12) * 3 + Math.sin(cx * 0.04) * 4;
                         
-                        // ИСПРАВЛЕНИЕ: Формула подъема сглаживается в широкое плато на краях,
-                        // убирая эффект тонкой наклонной «картонки», за которой видна пустота
                         let heightByDist = 0;
                         if (minDist < 7.5) {
                             heightByDist = (minDist - 3.5) * 2.5;
                         } else {
-                            // Формирование широкой горизонтальной вершины горы (плато)
                             heightByDist = (7.5 - 3.5) * 2.5 + (minDist - 7.5) * 0.3;
                         }
 
@@ -862,7 +793,6 @@
         }
 
         // --- Отрисовка скал и реки каньона через InstancedMesh ---
-        // КЛЮЧЕВАЯ ОПТИМИЗАЦИЯ: Эта тяжелая функция теперь вызывается только при шаге игрока вперед, а не каждый кадр!
         function updateCanyonMeshes() {
             // Пересобираем сетку занятых вокселей на CPU
             solidBlocks.clear();
@@ -934,7 +864,7 @@
             for (let i = 0; i < canyonData.length; i++) {
                 const data = canyonData[i];
                 
-                // РАСЧЕТ И КЭШИРОВАНИЕ AO (Делается ОДИН раз для новой колонки блоков, убирая микрофризы)
+                // РАСЧЕТ И КЭШИРОВАНИЕ AO
                 if (!data.grassAO) {
                     data.grassAO = [];
                     for (let j = 0; j < data.grass.length; j++) {
@@ -1062,7 +992,6 @@
             // Сброс сеточной карты при перегенерации
             generatedColumns.clear();
 
-            // 1. СНАЧАЛА генерируем 80 точек пути (10 сзади + 45 впереди + 25 будущих)
             const totalPoints = blocksBehind + maxActiveBlocks + futurePathSize; // 80
             let currentPos = new THREE.Vector3(0, 0, 0);
             for (let i = 0; i < totalPoints; i++) {
@@ -1075,7 +1004,6 @@
                 calculateNextPosition(currentPos);
             }
 
-            // 2. Отрисовываем 3D-мир для первых 55 блоков (активные + сзади)
             const initialRenderCount = blocksBehind + maxActiveBlocks; // 55
             for (let i = 0; i < initialRenderCount; i++) {
                 createCanyonAndMeshesForIndex(i);
@@ -1083,7 +1011,6 @@
 
             jumpProgress = 0;
             
-            // Первичный расчет AO для каньона на старте
             updateCanyonMeshes();
             updateCameraPosition(0);
         }
@@ -1094,27 +1021,21 @@
 
             // Солнце зафиксировано строго вертикально над игроком
             const sunX = 0;
-            const sunY = 200; // Оптимальная высота для максимально точных и резких теней
+            const sunY = 200; 
             const sunZ = 0;
 
             const moonX = 0;
             const moonY = -200;
             const moonZ = 0;
 
-            // Направляем лучи строго вниз (угол 90 градусов)
             sunLight.position.set(camera.position.x + sunX, camera.position.y + sunY, camera.position.z + sunZ);
             sunLight.target.position.set(camera.position.x, camera.position.y, camera.position.z);
             sunMesh.position.copy(sunLight.position);
 
-            // Луна скрыта под горизонтом
             moonLight.position.set(camera.position.x + moonX, camera.position.y + moonY, camera.position.z + moonZ);
             moonLight.target.position.set(camera.position.x, camera.position.y, camera.position.z);
-            moonMesh.position.copy(moonLight.position);
 
             sunMesh.lookAt(camera.position);
-            moonMesh.lookAt(camera.position);
-
-            starField.position.set(camera.position.x, 0, camera.position.z);
 
             // --- БЕСКОНЕЧНЫЙ СДВИГ И ГЕНЕРАЦИЯ ОБЪЕМНЫХ 3D ОБЛАКОВ ---
             cloudOffsetX -= 2.0 * deltaTime; 
@@ -1141,7 +1062,7 @@
                             const x = gx * cloudScale + cloudOffsetX;
                             const z = gz * cloudScale; 
                             
-                            tempPosition.set(x, 70, z); // Подняли облака выше до Y = 70
+                            tempPosition.set(x, 70, z); 
                             tempMatrix.makeTranslation(tempPosition.x, tempPosition.y, tempPosition.z);
                             
                             cloudMeshDepth.setMatrixAt(instanceId, tempMatrix);
@@ -1156,25 +1077,24 @@
             cloudMeshColor.count = instanceId;
             cloudMeshColor.instanceMatrix.needsUpdate = true;
 
-            // Настройка оригинальной дневной атмосферы (без приглушения пересветов)
             const skyDay = new THREE.Color(0x6ca1ff);      
 
             scene.background.copy(skyDay);
             scene.fog.color.copy(skyDay);
 
-            sunLight.intensity = 1.15; // Возвращено исходное значение
+            // Значения дублируются здесь для предотвращения сброса в игровом цикле
+            sunLight.intensity = 0.35; // Мягкое солнце, ослабляющее тени
             moonLight.intensity = 0;
             sunLight.color.setHex(0xffffff);
-            starMat.opacity = 0; 
             cloudColorMaterial.color.setHex(0xffffff);
             
             hemiLight.color.setHex(0xa0c8ff);
-            hemiLight.intensity = 0.4; // Возвращено исходное значение
+            hemiLight.intensity = 0.5; // Сильный фоновый небесный свет
 
             ambientLight.color.setHex(0xffffff);
-            ambientLight.intensity = 0.45; // Возвращено исходное значение
+            ambientLight.intensity = 0.9; // Сильное фоновое заполнение теней
 
-            // Подсветка под светящимися блоками для красоты
+            // Подсветка под светящимися блоками
             for (let i = 0; i < maxGlowLights; i++) {
                 if (i < blocksData.length) {
                     glowLights[i].position.set(blocksData[i].x, blocksData[i].y - 1, blocksData[i].z);
@@ -1220,7 +1140,6 @@
                 // Отрисовываем новый активный блок на горизонта
                 addNewBlock(lastPos);
 
-                // ОПТИМИЗАЦИЯ: Пересчитываем рельеф и AO только в момент шага вперед
                 updateCanyonMeshes();
 
                 jumpProgress = 0;
@@ -1285,7 +1204,6 @@
             updateDayNightCycle(limitedDelta);
             updateCameraPosition(limitedDelta);
             
-            // Рендер напрямую без фильтров постобработки
             renderer.render(scene, camera);
         }
 
