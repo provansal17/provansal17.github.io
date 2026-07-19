@@ -150,6 +150,28 @@
             texture.wrapT = THREE.RepeatWrapping;
             return texture;
         }
+        function rotateCanvasImage(source, angle = Math.PI / 2) {
+            const canvas = document.createElement('canvas');
+            const img = source.image || source;
+            const w = img.width || 16;
+            const h = img.height || 16;
+            
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.translate(w / 2, h / 2);
+            ctx.rotate(angle);
+            ctx.translate(-w / 2, -h / 2);
+            ctx.drawImage(img, 0, 0);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            return texture;
+        }
 
         // --- Текстуры для плоских Солнца и Луны ---
         function createSunTexture() {
@@ -180,7 +202,7 @@
             const moonPixels = [
                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,2,2,2,1,1,1,1,2,2,1,1,1,1,1],
+                [1,1,2,2,2,1,1,1,1,2,2,1,1,1,1,1],
                 [1,2,3,3,2,1,1,1,2,3,3,2,1,1,1,1],
                 [1,2,3,2,2,1,1,1,2,3,2,2,1,1,1,1],
                 [1,2,2,2,1,1,1,1,1,2,2,1,1,1,1,1],
@@ -391,15 +413,8 @@
             map: createGlowstoneTexture()
         });
 
-        // --- НАСТРОЙКА ПОВЕРНУТЫХ ТЕКСТУР ВОДЫ ДЛЯ БОКОВЫХ ГРАНЕЙ ---
-        const waterTextureTop = createWaterTexture();
-        const waterTextureSide = waterTextureTop.clone();
-        waterTextureSide.rotation = Math.PI / 2; // Разворот на 90 градусов
-        waterTextureSide.center.set(0.5, 0.5);   // Вращение вокруг центра
-        waterTextureSide.needsUpdate = true;
-
-        const waterSideMaterial = new THREE.MeshStandardMaterial({
-            map: waterTextureSide,
+        const waterColorMaterial = new THREE.MeshStandardMaterial({
+            map: createWaterTexture(),
             color: 0xffffff,
             transparent: true,
             opacity: 0.65,
@@ -409,29 +424,6 @@
             depthWrite: false,
             depthFunc: THREE.LessEqual 
         });
-
-        const waterTopMaterial = new THREE.MeshStandardMaterial({
-            map: waterTextureTop,
-            color: 0xffffff,
-            transparent: true,
-            opacity: 0.65,
-            roughness: 0.1, 
-            metalness: 0.1,
-            fog: true,
-            depthWrite: false,
-            depthFunc: THREE.LessEqual 
-        });
-
-        // Массив материалов для 6 граней водного куба:
-        // 0: Right (+x), 1: Left (-x), 2: Top (+y), 3: Bottom (-y), 4: Front (+z), 5: Back (-z)
-        const waterColorMaterials = [
-            waterSideMaterial, 
-            waterSideMaterial, 
-            waterTopMaterial,  
-            waterTopMaterial,  
-            waterSideMaterial, 
-            waterSideMaterial  
-        ];
 
         const waterDepthMaterial = new THREE.MeshBasicMaterial({
             colorWrite: false,
@@ -590,12 +582,12 @@
         const dirtGeometry = blockGeometry.clone();
         const stoneGeometry = blockGeometry.clone();
 
-        // --- Меши для скал и реки Каньона (InstancedMesh с увеличенными лимитами под новый радиус) ---
-        const canyonGrassMesh = new THREE.InstancedMesh(grassGeometry, canyonGrassMaterials, 10000);
-        const canyonDirtMesh = new THREE.InstancedMesh(dirtGeometry, canyonDirtMaterial, 20000);
-        const canyonStoneMesh = new THREE.InstancedMesh(stoneGeometry, canyonStoneMaterial, 60000);
+        // --- Меши для скал и реки Каньона (InstancedMesh) ---
+        const canyonGrassMesh = new THREE.InstancedMesh(grassGeometry, canyonGrassMaterials, 5000);
+        const canyonDirtMesh = new THREE.InstancedMesh(dirtGeometry, canyonDirtMaterial, 10000);
+        const canyonStoneMesh = new THREE.InstancedMesh(stoneGeometry, canyonStoneMaterial, 35000);
         const canyonWaterMeshDepth = new THREE.InstancedMesh(blockGeometry, waterDepthMaterial, 5000);
-        const canyonWaterMeshColor = new THREE.InstancedMesh(blockGeometry, waterColorMaterials, 5000); // Использует массив материалов
+        const canyonWaterMeshColor = new THREE.InstancedMesh(blockGeometry, waterColorMaterial, 5000);
 
         canyonGrassMesh.castShadow = true;
         canyonGrassMesh.receiveShadow = true;
@@ -635,9 +627,9 @@
             geometry.setAttribute('aAO5', ao5);
         }
 
-        setupAOMesh(grassGeometry, 10000);
-        setupAOMesh(dirtGeometry, 20000);
-        setupAOMesh(stoneGeometry, 60000);
+        setupAOMesh(grassGeometry, 5000);
+        setupAOMesh(dirtGeometry, 10000);
+        setupAOMesh(stoneGeometry, 35000);
 
         // Хранилище для абсолютной координатной сетки сгенерированных колонок (предотвращает наложение)
         const generatedColumns = new Set();
@@ -693,19 +685,9 @@
                 glowstoneMaterial.color.setHex(0xffffff);
                 glowstoneMaterial.needsUpdate = true;
             } else if (type === 'water') {
-                // Корректное обновление как верхней, так и повернутой боковой текстуры воды при внешней загрузке
-                const rotatedTexture = texture.clone();
-                rotatedTexture.rotation = Math.PI / 2;
-                rotatedTexture.center.set(0.5, 0.5);
-                rotatedTexture.wrapS = THREE.RepeatWrapping;
-                rotatedTexture.wrapT = THREE.RepeatWrapping;
-                rotatedTexture.needsUpdate = true;
-
-                waterTopMaterial.map = texture;
-                waterTopMaterial.needsUpdate = true;
-
-                waterSideMaterial.map = rotatedTexture;
-                waterSideMaterial.needsUpdate = true;
+                waterColorMaterial.map = texture;
+                waterColorMaterial.color.setHex(0xffffff);
+                waterColorMaterial.needsUpdate = true;
             }
         }
 
@@ -795,8 +777,7 @@
             // --- ГЕНЕРАЦИЯ КАНЬОНА НА ОСНОВЕ АБСОЛЮТНОЙ КООРДИНАТНОЙ СЕТКИ И ДИСТАНЦИЙ ---
             const localCanyon = { grass: [], dirt: [], stone: [], water: [], coords: [] };
 
-            // Радиус увеличен до 12, чтобы каньон не выглядел узким и "картонным"
-            const radius = 12;
+            const radius = 8;
             const startX = gridPos.x - radius;
             const endX = gridPos.x + radius;
             const startZ = gridPos.z - radius;
@@ -824,17 +805,7 @@
                         localCanyon.water.push(new THREE.Vector3(cx, waterY, cz));
                     } else {
                         const noise = Math.sin(cx * 0.12) * Math.cos(cz * 0.12) * 3 + Math.sin(cx * 0.04) * 4;
-                        
-                        // ИСПРАВЛЕНИЕ: Формула подъема сглаживается в широкое плато на краях,
-                        // убирая эффект тонкой наклонной «картонки», за которой видна пустота
-                        let heightByDist = 0;
-                        if (minDist < 7.5) {
-                            heightByDist = (minDist - 3.5) * 2.5;
-                        } else {
-                            // Формирование широкой горизонтальной вершины горы (плато)
-                            heightByDist = (7.5 - 3.5) * 2.5 + (minDist - 7.5) * 0.3;
-                        }
-
+                        const heightByDist = (minDist - 3.5) * 2.8;
                         const topY = Math.round(gridPos.y - 1 + heightByDist + noise);
                         const clampedTopY = Math.max(gridPos.y - 5, Math.min(gridPos.y + 12, topY));
                         const bottomY = gridPos.y - 6;
@@ -971,7 +942,7 @@
 
                 // Трава
                 for (let j = 0; j < data.grass.length; j++) {
-                    if (grassId < 10000) {
+                    if (grassId < 5000) {
                         const p = data.grass[j];
                         tempMatrix.makeTranslation(p.x, p.y, p.z);
                         canyonGrassMesh.setMatrixAt(grassId, tempMatrix);
@@ -982,7 +953,7 @@
 
                 // Земля
                 for (let j = 0; j < data.dirt.length; j++) {
-                    if (dirtId < 20000) {
+                    if (dirtId < 10000) {
                         const p = data.dirt[j];
                         tempMatrix.makeTranslation(p.x, p.y, p.z);
                         canyonDirtMesh.setMatrixAt(dirtId, tempMatrix);
@@ -993,7 +964,7 @@
 
                 // Камень
                 for (let j = 0; j < data.stone.length; j++) {
-                    if (stoneId < 60000) {
+                    if (stoneId < 35000) {
                         const p = data.stone[j];
                         tempMatrix.makeTranslation(p.x, p.y, p.z);
                         canyonStoneMesh.setMatrixAt(stoneId, tempMatrix);
