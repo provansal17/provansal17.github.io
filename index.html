@@ -2,7 +2,8 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Изменено для предотвращения системного масштабирования при двойном тапе на мобильных устройствах -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Minecraft Infinite Canyon Parkour</title>
     <style>
         body {
@@ -1459,6 +1460,20 @@
                 toggleNightMode();
             }
         });
+
+        // --- Слушатель двойного тапа для телефонов ---
+        let lastTap = 0;
+        window.addEventListener('touchend', (event) => {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
+            
+            // Если интервал между тапами меньше 300мс и больше 0
+            if (tapLength < 300 && tapLength > 0) {
+                toggleNightMode();
+                event.preventDefault(); // Предотвращаем зум браузера
+            }
+            lastTap = currentTime;
+        }, { passive: false });
 
         // --- Главный цикл анимации ---
         let lastTime = performance.now();
