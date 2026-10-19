@@ -58,6 +58,20 @@
         let isNight = themeFromEnvironment();
         let themeLocked = false; // true после ручного переключения
 
+        /* --- Время суток как в Minecraft: 24000 тиков = 20 минут (1200 с) ---
+         *  тик 0 – рассвет, 6000 – полдень, 12000 – закат, 18000 – полночь.
+         *  Параметры URL: ?time=6000 (стартовый тик), ?daylen=1200 (секунд на сутки) */
+        const TICKS_PER_DAY = 24000;
+        const qDayLen = parseFloat(urlParams.get('daylen'));
+        const DAY_SECONDS = qDayLen > 0 ? qDayLen : 1200;
+        const qTime = parseFloat(urlParams.get('time'));
+        let dayTicks = isFinite(qTime) ? ((qTime % TICKS_PER_DAY) + TICKS_PER_DAY) % TICKS_PER_DAY
+                                       : (isNight ? 18000 : 1000);
+        const sunElevation = (t) => Math.cos((t - 6000) / TICKS_PER_DAY * Math.PI * 2); // 1 = зенит, -1 = надир
+        const smooth01 = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+        let nightF = 1 - smooth01(-0.2, 0.2, sunElevation(dayTicks)); // 0 = день, 1 = ночь
+        const nightUniform = { value: nightF };
+
         const skyDayColor = new THREE.Color(0x6ca1ff);
         const skyNightColor = new THREE.Color(0x050510);
 
@@ -178,6 +192,19 @@
         // материалы создаются ниже; сюда сохраняем ссылки для подмены карты
         const atlasMaterials = [];
 
+        // Атлас блоков: вблизи чёткие пиксели (Nearest), вдали – мипмапы + анизотропия.
+        // Раньше minFilter был Nearest без мипмапов -> вдали текстуры мерцали и «рассыпались» полосами.
+        // Внутри уровня берём Nearest (не Linear), чтобы соседние тайлы атласа не подмешивались на краях блоков.
+        let maxAniso = 1;
+        function makeAtlasTexture(canvas) {
+            const t = new THREE.CanvasTexture(canvas);
+            t.magFilter = THREE.NearestFilter;
+            t.minFilter = THREE.NearestMipmapLinearFilter;
+            t.generateMipmaps = true;
+            t.anisotropy = maxAniso;
+            return t;
+        }
+
         function buildAtlasCanvas(sources) {
             let T = 16;
             for (let i = 0; i < sources.length; i++) {
@@ -219,7 +246,7 @@
                 slotSources = defaultSources.slice();
                 canvas = buildAtlasCanvas(slotSources);
             }
-            const tex = nearestTexture(canvas);
+            const tex = makeAtlasTexture(canvas);
             const old = atlasTexture;
             atlasTexture = tex;
             for (let i = 0; i < atlasMaterials.length; i++) atlasMaterials[i].map = tex;
@@ -244,8 +271,8 @@
          *  СЦЕНА И РЕНДЕРЕР
          * ===================================================================== */
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color().copy(isNight ? skyNightColor : skyDayColor);
-        scene.fog = new THREE.Fog(new THREE.Color().copy(isNight ? skyNightColor : skyDayColor), 110, 210);
+        scene.background = new THREE.Color().copy(skyDayColor);
+        scene.fog = new THREE.Fog(new THREE.Color().copy(skyDayColor), 110, 210);
 
         const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 1000);
 
@@ -255,6 +282,8 @@
         renderer.shadowMap.enabled = SHADOWS_ON;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
+        maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+        if (atlasTexture) atlasTexture.anisotropy = maxAniso;
 
         const dummy = new THREE.Object3D();
         const tempDir1 = new THREE.Vector3();
@@ -295,16 +324,21 @@
         scene.add(moonLight.target);
 
         /* --- Плоские небесные тела --- */
+        // Как в Minecraft: солнце и луна – плоские квадраты «на бесконечности», ЗА облаками.
+        // Дистанция 900 больше любого облака (до ~270), поэтому облака всегда закрывают солнце.
+        const SKY_DIST = 900;
         const sunMesh = new THREE.Mesh(
-            new THREE.PlaneGeometry(16, 16),
-            new THREE.MeshBasicMaterial({ map: createSunTexture(), fog: false, side: THREE.DoubleSide })
+            new THREE.PlaneGeometry(1, 1),
+            new THREE.MeshBasicMaterial({ map: createSunTexture(), fog: false, side: THREE.DoubleSide, depthWrite: false })
         );
+        sunMesh.scale.set(270, 270, 1);   // ~17° на небе, как в Minecraft
         scene.add(sunMesh);
 
         const moonMesh = new THREE.Mesh(
-            new THREE.PlaneGeometry(16, 16),
-            new THREE.MeshBasicMaterial({ map: createMoonTexture(), fog: false, side: THREE.DoubleSide })
+            new THREE.PlaneGeometry(1, 1),
+            new THREE.MeshBasicMaterial({ map: createMoonTexture(), fog: false, side: THREE.DoubleSide, depthWrite: false })
         );
+        moonMesh.scale.set(180, 180, 1);  // луна меньше солнца
         scene.add(moonMesh);
 
         /* --- Звёздное небо --- */
@@ -485,14 +519,24 @@
             map: atlasTexture, roughness: 0.9, metalness: 0.0
         });
         const glowMaterial = new THREE.MeshBasicMaterial({ map: atlasTexture });
-        const waterMaterial = new THREE.MeshStandardMaterial({
+        // Lambert: только диффузный свет, без зеркальных бликов – солнце в воде не отражается, как в Minecraft
+        const waterMaterial = new THREE.MeshLambertMaterial({
             map: atlasTexture, vertexColors: true,
             transparent: true, opacity: 0.65,
-            roughness: 0.1, metalness: 0.1,
             fog: true, depthWrite: false,
             polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1  // без мерцания на стыке воды и берега
         });
         atlasMaterials.push(terrainMaterial, jumpMaterial, glowMaterial, waterMaterial);
+
+        // Рельеф и вода: вершинный цвет = mix(день, ночь, uNight) – плавная смена освещения без перезаливки буферов
+        function blendDayNight(shader) {
+            shader.uniforms.uNight = nightUniform;
+            shader.vertexShader = shader.vertexShader
+                .replace('#include <color_pars_vertex>', '#include <color_pars_vertex>\nattribute vec3 colorN;\nuniform float uNight;')
+                .replace('#include <color_vertex>', '#include <color_vertex>\n#ifdef USE_COLOR\nvColor.xyz = mix(color.xyz, colorN.xyz, uNight);\n#endif');
+        }
+        terrainMaterial.onBeforeCompile = blendDayNight;
+        waterMaterial.onBeforeCompile = blendDayNight;
 
         loadLocalTexture('assets/top.png', 0);
         loadLocalTexture('assets/side.png', 1);
@@ -729,17 +773,14 @@
             g.setAttribute('normal', new THREE.BufferAttribute(B.nor.slice(0, n * 3), 3));
             g.setAttribute('uv', new THREE.BufferAttribute(B.uv.slice(0, n * 2), 2));
             const cd = B.cd.slice(0, n * 3), cn = B.cn.slice(0, n * 3);
-            const colAttr = new THREE.BufferAttribute(isNight ? cn : cd, 3);
-            g.setAttribute('color', colAttr);
+            g.setAttribute('color', new THREE.BufferAttribute(cd, 3));   // день
+            g.setAttribute('colorN', new THREE.BufferAttribute(cn, 3));  // ночь
             const idxArr = n > 65535 ? B.idx.slice(0, B.ni) : new Uint16Array(B.idx.subarray(0, B.ni));
             g.setIndex(new THREE.BufferAttribute(idxArr, 1));
             const mesh = new THREE.Mesh(g, material);
             mesh.matrixAutoUpdate = false;
             mesh.castShadow = false;           // рельеф – heightmap, теней вниз не даёт
             mesh.receiveShadow = isWater && SHADOWS_ON; // тени от блоков видны только на воде
-            mesh.userData.cd = cd;
-            mesh.userData.cn = cn;
-            mesh.userData.attr = colAttr;
             return mesh;
         }
 
@@ -863,9 +904,9 @@
                 jumpMesh.setMatrixAt(i, tempMatrix);
                 tempMatrix.makeTranslation(p.x, p.y - 1, p.z);
                 glowMesh.setMatrixAt(i, tempMatrix);
-                if (isNight) {
+                if (nightF > 0.001) {
                     computeLight(p.x, p.y, p.z, i);
-                    tempColor.setRGB(LR, LG, LB);
+                    tempColor.setRGB(1 + (LR - 1) * nightF, 1 + (LG - 1) * nightF, 1 + (LB - 1) * nightF);
                 } else {
                     tempColor.setRGB(1, 1, 1);
                 }
@@ -928,83 +969,74 @@
         }
 
         /* =====================================================================
-         *  ТЕМА (день / ночь) – применяется ОДИН раз при переключении
+         *  ВРЕМЯ СУТОК (плавная смена дня и ночи, как в Minecraft)
          * ===================================================================== */
-        function applyTheme() {
-            if (isNight) {
-                scene.background.copy(skyNightColor);
-                scene.fog.color.copy(skyNightColor);
-                scene.fog.near = 40;
-                scene.fog.far = 130;
+        const skyTmp = new THREE.Color();
+        const duskColor = new THREE.Color(0xe08a50);
+        const cNightCloud = new THREE.Color(0x111122), cDayCloud = new THREE.Color(0xffffff);
+        const cNightHemi = new THREE.Color(0x111122), cDayHemi = new THREE.Color(0xa0c8ff);
+        const cWhite = new THREE.Color(0xffffff), cSunDusk = new THREE.Color(0xffb070);
+        let lastInstNight = -1;
 
-                sunLight.intensity = 0.0;
-                sunLight.shadow.autoUpdate = false;     // ночью карта теней не рендерится
-                moonLight.intensity = 0.15;
-                moonLight.color.setHex(0xaaccff);
+        function applyTimeOfDay() {
+            const elev = sunElevation(dayTicks);
+            const dayF = smooth01(-0.2, 0.2, elev);
+            nightF = 1 - dayF;
+            nightUniform.value = nightF;
+            const dusk = Math.max(0, 1 - Math.abs(elev) / 0.35) * 0.5; // оранжевый закат/рассвет у горизонта
 
-                cloudColorMaterial.color.setHex(0x111122);
-                cloudColorMaterial.opacity = 0.45;
+            skyTmp.copy(skyNightColor).lerp(skyDayColor, dayF).lerp(duskColor, dusk);
+            scene.background.copy(skyTmp);
+            scene.fog.color.copy(skyTmp);
+            scene.fog.near = 40 + (110 - 40) * dayF;
+            scene.fog.far = 130 + (210 - 130) * dayF;
 
-                hemiLight.color.setHex(0x111122);
-                hemiLight.intensity = 0.15;
-                ambientLight.color.setHex(0xffffff);
-                ambientLight.intensity = 0.85;
+            sunLight.intensity = 0.35 * dayF;
+            sunLight.color.copy(cWhite).lerp(cSunDusk, dusk);
+            sunLight.shadow.autoUpdate = sunLight.intensity > 0.01;   // ночью карта теней не рендерится
+            moonLight.intensity = 0.15 * nightF;
 
-                starField.visible = true;
-                sunMesh.visible = false;
-                moonMesh.visible = true;
-            } else {
-                scene.background.copy(skyDayColor);
-                scene.fog.color.copy(skyDayColor);
-                scene.fog.near = 110;
-                scene.fog.far = 210;
+            hemiLight.color.copy(cNightHemi).lerp(cDayHemi, dayF);
+            hemiLight.intensity = 0.15 + (0.5 - 0.15) * dayF;
+            ambientLight.intensity = 0.85 + (0.9 - 0.85) * dayF;
 
-                sunLight.intensity = 0.35;
-                sunLight.shadow.autoUpdate = true;
-                moonLight.intensity = 0.0;
+            cloudColorMaterial.color.copy(cNightCloud).lerp(cDayCloud, dayF);
+            cloudColorMaterial.opacity = 0.45 + (0.5 - 0.45) * dayF;
 
-                cloudColorMaterial.color.setHex(0xffffff);
-                cloudColorMaterial.opacity = 0.5;
+            starField.visible = nightF > 0.02;
+            starField.material.opacity = 0.85 * smooth01(0.25, 0.9, nightF);
+            sunMesh.visible = elev > -0.3;
+            moonMesh.visible = elev < 0.3;
 
-                hemiLight.color.setHex(0xa0c8ff);
-                hemiLight.intensity = 0.5;
-                ambientLight.color.setHex(0xffffff);
-                ambientLight.intensity = 0.9;
-
-                starField.visible = false;
-                sunMesh.visible = true;
-                moonMesh.visible = false;
+            // подсветка прыжковых блоков зависит от nightF – обновляем только когда она заметно изменилась
+            if (Math.abs(nightF - lastInstNight) > 0.004) {
+                lastInstNight = nightF;
+                updatePathInstances();
             }
-
-            // Подмена вершинных цветов (день = только AO, ночь = AO * свет)
-            for (let i = 0; i < chunks.length; i++) {
-                const ch = chunks[i];
-                for (const m of [ch.mesh, ch.waterMesh]) {
-                    if (!m) continue;
-                    m.userData.attr.array = isNight ? m.userData.cn : m.userData.cd;
-                    m.userData.attr.needsUpdate = true;
-                }
-            }
-            updatePathInstances();
         }
 
-        // Небесные тела следуют за камерой; тень привязана к сетке текселей (нет "плавания" теней)
+        const sunDir = new THREE.Vector3();
+
+        // Небесные тела следуют за камерой и движутся по дуге; тень привязана к сетке текселей
         function updateSky(dt) {
             const cp = camera.position;
-            if (isNight) {
-                moonLight.position.set(cp.x, cp.y + 200, cp.z);
-                moonLight.target.position.set(cp.x, cp.y, cp.z);
-                moonMesh.position.set(cp.x, cp.y + 200, cp.z);
-                moonMesh.lookAt(cp);
-                starField.position.copy(cp);
-            } else {
-                const sx = Math.round(cp.x / SHADOW_TEXEL) * SHADOW_TEXEL;
-                const sz = Math.round(cp.z / SHADOW_TEXEL) * SHADOW_TEXEL;
-                sunLight.position.set(sx, cp.y + 200, sz);
-                sunLight.target.position.set(sx, cp.y, sz);
-                sunMesh.position.set(cp.x, cp.y + 200, cp.z);
-                sunMesh.lookAt(cp);
-            }
+            const ang = (dayTicks - 6000) / TICKS_PER_DAY * Math.PI * 2;
+            sunDir.set(Math.sin(ang), Math.cos(ang), 0.25).normalize();   // единичный вектор на солнце
+
+            sunMesh.position.set(cp.x + sunDir.x * SKY_DIST, cp.y + sunDir.y * SKY_DIST, cp.z + sunDir.z * SKY_DIST);
+            sunMesh.lookAt(cp);
+            moonMesh.position.set(cp.x - sunDir.x * SKY_DIST, cp.y - sunDir.y * SKY_DIST, cp.z - sunDir.z * SKY_DIST);
+            moonMesh.lookAt(cp);
+            starField.position.copy(cp);
+
+            moonLight.position.set(cp.x - sunDir.x * 200, cp.y - sunDir.y * 200, cp.z - sunDir.z * 200);
+            moonLight.target.position.set(cp.x, cp.y, cp.z);
+
+            const sx = Math.round(cp.x / SHADOW_TEXEL) * SHADOW_TEXEL;
+            const sz = Math.round(cp.z / SHADOW_TEXEL) * SHADOW_TEXEL;
+            sunLight.position.set(sx + sunDir.x * 200, cp.y + sunDir.y * 200, sz + sunDir.z * 200);
+            sunLight.target.position.set(sx, cp.y, sz);
+
             updateClouds(dt);
         }
 
@@ -1064,9 +1096,9 @@
             if (fromRepeatableSource && now - lastToggleTime < 350) return;
             lastToggleTime = now;
             themeLocked = true;
-            isNight = !isNight;
-            history.replaceState(null, null, isNight ? '#night' : '#day');
-            applyTheme();
+            // быстрая перемотка: день -> полночь, ночь -> утро (дальше время идёт само)
+            dayTicks = nightF > 0.5 ? 1000 : 18000;
+            applyTimeOfDay();
         }
 
         window.addEventListener('keydown', (event) => {
@@ -1101,9 +1133,8 @@
         {
             let tries = 0;
             const id = setInterval(() => {
-                if (themeLocked || ++tries > 10) { clearInterval(id); return; }
-                const want = themeFromEnvironment();
-                if (want !== isNight) { isNight = want; applyTheme(); }
+                if (themeLocked || isFinite(qTime) || ++tries > 10) { clearInterval(id); return; }
+                if (themeFromEnvironment() && nightF < 0.5) { dayTicks = 18000; applyTimeOfDay(); }
             }, 1000);
         }
 
@@ -1131,6 +1162,9 @@
                 meshChunk(meshQueue.shift());
             }
 
+            dayTicks = (dayTicks + dt * TICKS_PER_DAY / DAY_SECONDS) % TICKS_PER_DAY;
+            applyTimeOfDay();
+
             updateCameraPosition(dt);
             updateSky(dt);
 
@@ -1139,7 +1173,7 @@
 
         // Запуск
         generateParkour();
-        applyTheme();
+        applyTimeOfDay();
         lastTime = performance.now();
         animate(lastTime);
     </script>
