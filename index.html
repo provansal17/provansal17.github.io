@@ -523,6 +523,10 @@
             m.receiveShadow = false;
             m.count = 0;
         }
+        // В three r128 setColorAt создаёт буфер размером count*3, а count тут = 0 -> буфер пустой,
+        // и блоки рисовались чёрными. Создаём буфер цветов явно на всю ёмкость (64).
+        jumpMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(64 * 3).fill(1), 3);
+        jumpMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
         scene.add(jumpMesh);
         scene.add(glowMesh);
 
