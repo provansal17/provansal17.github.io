@@ -40,13 +40,11 @@
          *  НАСТРОЙКИ (необязательные параметры URL):
          *    ?mode=night      – стартовать ночью (или #night)
          *    ?scale=0.75      – масштаб разрешения рендера (меньше = быстрее)
-         *    ?shadows=0       – полностью отключить тени
          * ===================================================================== */
         const urlParams = new URLSearchParams(window.location.search);
         const urlMode = urlParams.get('mode');
         const qScale = parseFloat(urlParams.get('scale'));
         const PIXEL_RATIO = (qScale > 0 && qScale <= 2) ? qScale : 1;
-        const SHADOWS_ON = urlParams.get('shadows') !== '0';
 
         // --- Определение темы ---
         function cssSaysNight() {
@@ -144,9 +142,10 @@
         }
 
         function createSunTexture() {
+            // Как в Minecraft: почти белый квадрат с едва заметным тёплым оттенком, без оранжевой каймы
             return nearestTexture(makeCanvas16((x, y) => {
-                if (x >= 2 && x <= 13 && y >= 2 && y <= 13) return [255, 245, 195];
-                return [255, 190, 60];
+                if (x >= 4 && x <= 11 && y >= 4 && y <= 11) return [255, 255, 245];
+                return [255, 252, 222];
             }));
         }
 
@@ -279,8 +278,7 @@
         const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
         renderer.setPixelRatio(PIXEL_RATIO);
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = SHADOWS_ON;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.enabled = false;   // мягкие shadow map убраны – тени на воде теперь блочные (см. ниже)
         document.body.appendChild(renderer.domElement);
         maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
         if (atlasTexture) atlasTexture.anisotropy = maxAniso;
@@ -305,7 +303,7 @@
         const SHADOW_TEXEL = SHADOW_AREA / SHADOW_MAP;
 
         const sunLight = new THREE.DirectionalLight(0xffffff, 0.35);
-        sunLight.castShadow = SHADOWS_ON;
+        sunLight.castShadow = false;
         sunLight.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
         {
             const sc = sunLight.shadow.camera;
@@ -331,14 +329,14 @@
             new THREE.PlaneGeometry(1, 1),
             new THREE.MeshBasicMaterial({ map: createSunTexture(), fog: false, side: THREE.DoubleSide, depthWrite: false })
         );
-        sunMesh.scale.set(270, 270, 1);   // ~17° на небе, как в Minecraft
+        sunMesh.scale.set(150, 150, 1);   // меньше, ~9.5° на небе
         scene.add(sunMesh);
 
         const moonMesh = new THREE.Mesh(
             new THREE.PlaneGeometry(1, 1),
             new THREE.MeshBasicMaterial({ map: createMoonTexture(), fog: false, side: THREE.DoubleSide, depthWrite: false })
         );
-        moonMesh.scale.set(180, 180, 1);  // луна меньше солнца
+        moonMesh.scale.set(110, 110, 1);  // луна меньше солнца
         scene.add(moonMesh);
 
         /* --- Звёздное небо --- */
@@ -563,7 +561,7 @@
         for (const m of [jumpMesh, glowMesh]) {
             m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
             m.frustumCulled = false;
-            m.castShadow = SHADOWS_ON;
+            m.castShadow = false;
             m.receiveShadow = false;
             m.count = 0;
         }
@@ -780,7 +778,7 @@
             const mesh = new THREE.Mesh(g, material);
             mesh.matrixAutoUpdate = false;
             mesh.castShadow = false;           // рельеф – heightmap, теней вниз не даёт
-            mesh.receiveShadow = isWater && SHADOWS_ON; // тени от блоков видны только на воде
+            mesh.receiveShadow = false;
             return mesh;
         }
 
@@ -993,7 +991,6 @@
 
             sunLight.intensity = 0.35 * dayF;
             sunLight.color.copy(cWhite).lerp(cSunDusk, dusk);
-            sunLight.shadow.autoUpdate = sunLight.intensity > 0.01;   // ночью карта теней не рендерится
             moonLight.intensity = 0.15 * nightF;
 
             hemiLight.color.copy(cNightHemi).lerp(cDayHemi, dayF);
@@ -1017,25 +1014,34 @@
 
         const sunDir = new THREE.Vector3();
 
-        // Небесные тела следуют за камерой и движутся по дуге; тень привязана к сетке текселей
+        // Небесные тела следуют за камерой. Как в Minecraft: путь – ровная дуга восток (+X) → зенит → запад (-X),
+        // без наклона по Z; квадраты солнца/луны выровнены по плоскости дуги (рёбра параллельны сетке).
+        const skyBasis = new THREE.Matrix4();
+        const skyX = new THREE.Vector3(0, 0, 1), skyY = new THREE.Vector3(), skyN = new THREE.Vector3();
+        function orientSkyQuad(mesh, dirToBody) {
+            skyN.copy(dirToBody).negate();                 // нормаль смотрит на наблюдателя
+            skyY.set(skyN.y, -skyN.x, 0);                  // Y = N × Z
+            skyBasis.makeBasis(skyX, skyY, skyN);
+            mesh.quaternion.setFromRotationMatrix(skyBasis);
+        }
+
         function updateSky(dt) {
             const cp = camera.position;
             const ang = (dayTicks - 6000) / TICKS_PER_DAY * Math.PI * 2;
-            sunDir.set(Math.sin(ang), Math.cos(ang), 0.25).normalize();   // единичный вектор на солнце
+            sunDir.set(-Math.sin(ang), Math.cos(ang), 0);  // тик 0 – восток, 6000 – зенит, 12000 – запад
 
-            sunMesh.position.set(cp.x + sunDir.x * SKY_DIST, cp.y + sunDir.y * SKY_DIST, cp.z + sunDir.z * SKY_DIST);
-            sunMesh.lookAt(cp);
-            moonMesh.position.set(cp.x - sunDir.x * SKY_DIST, cp.y - sunDir.y * SKY_DIST, cp.z - sunDir.z * SKY_DIST);
-            moonMesh.lookAt(cp);
+            sunMesh.position.set(cp.x + sunDir.x * SKY_DIST, cp.y + sunDir.y * SKY_DIST, cp.z);
+            orientSkyQuad(sunMesh, sunDir);
+            moonMesh.position.set(cp.x - sunDir.x * SKY_DIST, cp.y - sunDir.y * SKY_DIST, cp.z);
+            tempDir1.copy(sunDir).negate();
+            orientSkyQuad(moonMesh, tempDir1);
             starField.position.copy(cp);
 
-            moonLight.position.set(cp.x - sunDir.x * 200, cp.y - sunDir.y * 200, cp.z - sunDir.z * 200);
+            moonLight.position.set(cp.x - sunDir.x * 200, cp.y - sunDir.y * 200, cp.z);
             moonLight.target.position.set(cp.x, cp.y, cp.z);
 
-            const sx = Math.round(cp.x / SHADOW_TEXEL) * SHADOW_TEXEL;
-            const sz = Math.round(cp.z / SHADOW_TEXEL) * SHADOW_TEXEL;
-            sunLight.position.set(sx + sunDir.x * 200, cp.y + sunDir.y * 200, sz + sunDir.z * 200);
-            sunLight.target.position.set(sx, cp.y, sz);
+            sunLight.position.set(cp.x + sunDir.x * 200, cp.y + sunDir.y * 200, cp.z);
+            sunLight.target.position.set(cp.x, cp.y, cp.z);
 
             updateClouds(dt);
         }
